@@ -130,6 +130,7 @@ export class Agent {
   readonly replayBuilder: ReplayBuilder;
 
   private lastLlmConfigLogSignature?: string;
+  private readonly eventListeners = new Set<(event: AgentEvent) => void>();
 
   constructor(options: AgentOptions) {
     this.type = options.type ?? 'main';
@@ -406,7 +407,15 @@ export class Agent {
 
   emitEvent(event: AgentEvent): void {
     if (this.records.restoring) return;
+    for (const listener of this.eventListeners) listener(event);
     void this.rpc?.emitEvent?.(event);
+  }
+
+  onEvent(listener: (event: AgentEvent) => void): () => void {
+    this.eventListeners.add(listener);
+    return () => {
+      this.eventListeners.delete(listener);
+    };
   }
 
   emitStatusUpdated(): void {

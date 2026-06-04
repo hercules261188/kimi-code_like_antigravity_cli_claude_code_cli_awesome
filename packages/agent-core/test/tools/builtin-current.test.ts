@@ -280,7 +280,8 @@ describe('current builtin collaboration tools', () => {
     });
 
     const result = await executeTool(tool, context(input, 'call_agent'));
-    expect(host.spawn).toHaveBeenCalledWith('coder', {
+    expect(host.spawn).toHaveBeenCalledWith({
+      profileName: 'coder',
       parentToolCallId: 'call_agent',
       prompt: 'Investigate',
       description: 'Find cause',

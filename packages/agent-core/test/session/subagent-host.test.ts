@@ -41,60 +41,86 @@ afterEach(async () => {
 });
 
 describe('SessionSubagentHost', () => {
-  it('runQueued ramps launches in batches of ten up to thirty', async () => {
-    vi.useFakeTimers();
-    try {
-      const host = new SessionSubagentHost({} as Session, 'main');
-      const completions: Array<ReturnType<typeof deferred<{ result: string }>>> = [];
-      const spawn = vi.spyOn(host, 'spawn').mockImplementation((options) => {
-        const profileName = typeof options === 'string' ? options : options.profileName;
-        const completion = deferred<{ result: string }>();
-        completions.push(completion);
-        return Promise.resolve({
-          agentId: `agent-${String(completions.length)}`,
-          profileName,
-          resumed: false,
-          completion: completion.promise,
-        } satisfies SubagentHandle);
-      });
+  it('runQueued launches the next batch after every current batch member emits output', async () => {
+    const host = new SessionSubagentHost({} as Session, 'main');
+    const launches: Array<
+      ReturnType<typeof deferred<{ result: string }>> & { readonly ready: () => void }
+    > = [];
+    const spawn = vi.spyOn(host, 'spawn').mockImplementation((options) => {
+      const profileName = typeof options === 'string' ? options : options.profileName;
+      const completion = {
+        ...deferred<{ result: string }>(),
+        ready: typeof options === 'string' ? () => {} : options.onFirstOutput ?? (() => {}),
+      };
+      launches.push(completion);
+      return Promise.resolve({
+        agentId: `agent-${String(launches.length)}`,
+        profileName,
+        resumed: false,
+        completion: completion.promise,
+      } satisfies SubagentHandle);
+    });
 
-      const running = host.runQueued(
-        Array.from({ length: 30 }, (_, index) => queuedTask(index + 1)),
-        { signal },
-      );
+    const running = host.runQueued(
+      Array.from({ length: 41 }, (_, index) => queuedTask(index + 1)),
+      { signal },
+    );
 
-      await vi.advanceTimersByTimeAsync(0);
-      expect(spawn).toHaveBeenCalledTimes(10);
+    await flushPromises();
+    expect(spawn).toHaveBeenCalledTimes(10);
 
-      await vi.advanceTimersByTimeAsync(499);
-      expect(spawn).toHaveBeenCalledTimes(10);
+    launches.slice(0, 9).forEach((launch) => {
+      launch.ready();
+    });
+    await flushPromises();
+    expect(spawn).toHaveBeenCalledTimes(10);
 
-      await vi.advanceTimersByTimeAsync(1);
+    launches[9]!.ready();
+    await vi.waitFor(() => {
       expect(spawn).toHaveBeenCalledTimes(20);
+    });
 
-      await vi.advanceTimersByTimeAsync(500);
+    launches.slice(10, 20).forEach((launch) => {
+      launch.ready();
+    });
+    await vi.waitFor(() => {
       expect(spawn).toHaveBeenCalledTimes(30);
+    });
 
-      completions.forEach((completion, index) => {
-        completion.resolve({ result: `result ${String(index + 1)}` });
-      });
-      const results = await running;
+    launches.slice(20, 30).forEach((launch) => {
+      launch.ready();
+    });
+    await vi.waitFor(() => {
+      expect(spawn).toHaveBeenCalledTimes(40);
+    });
 
-      expect(results).toHaveLength(30);
-      expect(results.every((result) => result.status === 'completed')).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
+    launches.slice(30, 40).forEach((launch) => {
+      launch.ready();
+    });
+    await vi.waitFor(() => {
+      expect(spawn).toHaveBeenCalledTimes(41);
+    });
+
+    launches.forEach((completion, index) => {
+      completion.resolve({ result: `result ${String(index + 1)}` });
+    });
+    const results = await running;
+
+    expect(results).toHaveLength(41);
+    expect(results.every((result) => result.status === 'completed')).toBe(true);
   });
 
-  it('runQueued queues 429 and launches one queued subagent 500ms after a slot opens', async () => {
+  it('runQueued locks slots to launched minus two after the first 429', async () => {
     vi.useFakeTimers();
     try {
+      const controller = new AbortController();
       const host = new SessionSubagentHost({} as Session, 'main');
-      const completions: Array<
-        ReturnType<typeof deferred<{ result: string }>> & { readonly prompt: string }
+      const launches: Array<
+        ReturnType<typeof deferred<{ result: string }>> & {
+          readonly prompt: string;
+          readonly ready: () => void;
+        }
       > = [];
-      let firstItemRateLimited = false;
       const spawn = vi
         .spyOn(host, 'spawn')
         .mockImplementation((options, legacyOptions?: { readonly prompt: string }) => {
@@ -103,24 +129,14 @@ describe('SessionSubagentHost', () => {
           if (prompt === undefined) {
             throw new Error('mocked subagent prompt is required');
           }
-          if (prompt === 'Review item-1' && !firstItemRateLimited) {
-            firstItemRateLimited = true;
-            return Promise.resolve({
-              agentId: 'agent-rate-limited',
-              profileName,
-              resumed: false,
-              completion: Promise.resolve().then(() => {
-                throw new Error(rateLimit429Message);
-              }),
-            } satisfies SubagentHandle);
-          }
           const completion = {
             ...deferred<{ result: string }>(),
             prompt,
+            ready: typeof options === 'string' ? () => {} : options.onFirstOutput ?? (() => {}),
           };
-          completions.push(completion);
+          launches.push(completion);
           return Promise.resolve({
-            agentId: `agent-${String(completions.length)}`,
+            agentId: `agent-${String(launches.length)}`,
             profileName,
             resumed: false,
             completion: completion.promise,
@@ -128,40 +144,47 @@ describe('SessionSubagentHost', () => {
         });
 
       const running = host.runQueued(
-        Array.from({ length: 11 }, (_, index) => queuedTask(index + 1)),
-        { signal },
+        Array.from({ length: 21 }, (_, index) => queuedTask(index + 1)),
+        { signal: controller.signal },
       );
+      void running.catch(() => {});
 
       await vi.advanceTimersByTimeAsync(0);
       expect(spawn).toHaveBeenCalledTimes(10);
 
-      completions[0]!.resolve({ result: 'opened one slot' });
+      launches.slice(0, 10).forEach((launch) => {
+        launch.ready();
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(spawn).toHaveBeenCalledTimes(20);
+
+      launches[14]!.reject(new Error(rateLimit429Message));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(spawn).toHaveBeenCalledTimes(20);
+
+      launches[0]!.resolve({ result: 'opened slot 1' });
+      await vi.advanceTimersByTimeAsync(500);
+      expect(spawn).toHaveBeenCalledTimes(20);
+
+      launches[1]!.resolve({ result: 'opened slot 2' });
       await vi.advanceTimersByTimeAsync(499);
-      expect(spawn).toHaveBeenCalledTimes(10);
+      expect(spawn).toHaveBeenCalledTimes(20);
 
       await vi.advanceTimersByTimeAsync(1);
-      expect(spawn).toHaveBeenCalledTimes(11);
+      expect(spawn).toHaveBeenCalledTimes(21);
       expect(spawn).toHaveBeenLastCalledWith({
-        data: 1,
+        data: 15,
         profileName: 'coder',
         parentToolCallId: 'call_swarm',
-        prompt: 'Review item-1',
-        description: 'Review #1',
+        prompt: 'Review item-15',
+        description: 'Review #15',
         runInBackground: false,
-        signal,
+        signal: controller.signal,
+        onFirstOutput: expect.any(Function),
       });
 
-      for (const completion of [...completions]) {
-        completion.resolve({ result: `${completion.prompt} done` });
-      }
-      await vi.advanceTimersByTimeAsync(500);
-      expect(spawn).toHaveBeenCalledTimes(12);
-      completions.at(-1)!.resolve({ result: 'Review item-11 done' });
-
-      const results = await running;
-
-      expect(results).toHaveLength(11);
-      expect(results.every((result) => result.status === 'completed')).toBe(true);
+      controller.abort();
+      await expect(running).rejects.toThrow();
     } finally {
       vi.useRealTimers();
     }
@@ -288,6 +311,37 @@ describe('SessionSubagentHost', () => {
         event: 'subagent.failed',
       }),
     );
+  });
+
+  it('marks a queued child ready when the model emits thinking output', async () => {
+    const parent = testAgent();
+    parent.configure();
+    parent.newEvents();
+
+    const child = testAgent();
+    const summary =
+      'Completed the delegated subagent task with enough concrete detail for the parent agent to continue without repeating the work. '.repeat(
+        2,
+      );
+    child.mockNextResponse({ type: 'think', think: 'I can start.' }, { type: 'text', text: summary });
+    const session = fakeSession(parent.agent, child.agent);
+    const host = new SessionSubagentHost(session, 'main');
+    const onFirstOutput = vi.fn();
+
+    const handle = await host.spawn('coder', {
+      parentToolCallId: 'call_agent',
+      prompt: 'Implement the fix',
+      description: 'Fix bug',
+      runInBackground: false,
+      signal,
+      onFirstOutput,
+    });
+
+    await vi.waitFor(() => {
+      expect(onFirstOutput).toHaveBeenCalledTimes(1);
+    });
+    await expect(handle.completion).resolves.toMatchObject({ result: summary.trim() });
+    expect(onFirstOutput).toHaveBeenCalledTimes(1);
   });
 
   it('runs a child agent turn and returns the last assistant text', async () => {
@@ -1349,6 +1403,12 @@ function deferred<T>() {
     reject = innerReject;
   });
   return { promise, resolve, reject };
+}
+
+async function flushPromises(count = 2): Promise<void> {
+  for (let i = 0; i < count; i += 1) {
+    await Promise.resolve();
+  }
 }
 
 function queuedTask(index: number): QueuedSubagentTask<number> {

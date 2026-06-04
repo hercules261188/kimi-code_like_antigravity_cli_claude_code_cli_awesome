@@ -8,6 +8,7 @@ import {
   prepareSystemPromptContext,
   type ResolvedAgentProfile,
 } from '../profile';
+import type { AgentEvent } from '../rpc';
 import {
   createDeadlineAbortSignal,
   linkAbortSignal,
@@ -51,6 +52,7 @@ type RunSubagentOptions = {
   readonly runInBackground: boolean;
   readonly origin?: PromptOrigin | undefined;
   readonly signal: AbortSignal;
+  readonly onFirstOutput?: (() => void) | undefined;
 };
 
 type SpawnSubagentOptions = RunSubagentOptions & {
@@ -86,7 +88,16 @@ export class SessionSubagentHost {
     this.launchQueue = new SubagentLaunchQueue(this);
   }
 
-  async spawn(options: SpawnSubagentOptions): Promise<SubagentHandle> {
+  async spawn(profileName: string, options: RunSubagentOptions): Promise<SubagentHandle>;
+  async spawn(options: SpawnSubagentOptions): Promise<SubagentHandle>;
+  async spawn(
+    profileNameOrOptions: string | SpawnSubagentOptions,
+    legacyOptions?: RunSubagentOptions,
+  ): Promise<SubagentHandle> {
+    const options =
+      typeof profileNameOrOptions === 'string'
+        ? { ...legacyOptions!, profileName: profileNameOrOptions }
+        : profileNameOrOptions;
     options.signal.throwIfAborted();
     const parent = this.requireParentAgent();
     const profile = this.resolveProfile(parent, options.profileName);
@@ -215,6 +226,7 @@ export class SessionSubagentHost {
     task: QueuedSubagentTask<T>,
     options: QueuedSubagentRunOptions,
     totalTimedOut: () => boolean,
+    markReady: () => void,
   ): Promise<QueuedSubagentAttemptOutcome<T>> {
     const subagentDeadline =
       options.timeoutMs === undefined
@@ -227,6 +239,7 @@ export class SessionSubagentHost {
       handle = await this.spawn({
         ...task,
         signal: runSignal,
+        onFirstOutput: markReady,
       });
       const completion = await handle.completion;
       return {
@@ -295,6 +308,7 @@ export class SessionSubagentHost {
     emitSpawnedEvent = true,
   ): Promise<SubagentCompletion> {
     if (emitSpawnedEvent) this.emitSubagentSpawned(parent, childId, profileName, options);
+    const unwatchFirstOutput = this.watchFirstOutput(child, options.onFirstOutput);
 
     try {
       await prepareChild();
@@ -347,6 +361,8 @@ export class SessionSubagentHost {
         error: message,
       });
       throw error;
+    } finally {
+      unwatchFirstOutput?.();
     }
   }
 
@@ -390,6 +406,19 @@ export class SessionSubagentHost {
         agentName: profileName,
         response: result.slice(0, HOOK_TEXT_PREVIEW_LENGTH),
       },
+    });
+  }
+
+  private watchFirstOutput(
+    child: Agent,
+    onFirstOutput: (() => void) | undefined,
+  ): (() => void) | undefined {
+    if (onFirstOutput === undefined) return undefined;
+    let emitted = false;
+    return child.onEvent((event) => {
+      if (emitted || !isFirstOutputEvent(event)) return;
+      emitted = true;
+      onFirstOutput();
     });
   }
 
@@ -463,4 +492,18 @@ function lastAssistantText(agent: Agent): string {
     if (text.trim().length > 0) return text.trim();
   }
   return '';
+}
+
+function isFirstOutputEvent(event: AgentEvent): boolean {
+  switch (event.type) {
+    case 'assistant.delta':
+    case 'thinking.delta':
+      return event.delta.length > 0;
+    case 'tool.call.delta':
+      return (event.name?.length ?? 0) > 0 || (event.argumentsPart?.length ?? 0) > 0;
+    case 'tool.call.started':
+      return true;
+    default:
+      return false;
+  }
 }

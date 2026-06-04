@@ -82,6 +82,7 @@ export type {
 // Subagent lifecycle events.
 export type {
   SubagentSpawnedEvent,
+  SubagentStartedEvent,
   SubagentCompletedEvent,
   SubagentFailedEvent,
 } from '@moonshot-ai/agent-core';

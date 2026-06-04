@@ -13,7 +13,7 @@ export class SwarmModeMarkerComponent implements Component {
   invalidate(): void {}
 
   render(_width: number): string[] {
-    const color = this.active ? this.colors.primary : this.colors.textDim;
+    const color = this.active ? this.colors.success : this.colors.textDim;
     const marker = chalk.hex(color).bold(STATUS_BULLET);
     const label = chalk.hex(color).bold(this.active ? 'Swarm activated' : 'Swarm deactivated');
     return ['', marker + label];

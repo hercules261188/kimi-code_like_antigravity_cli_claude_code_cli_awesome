@@ -37,7 +37,7 @@ const SUBAGENT_ELAPSED_INTERVAL_MS = 1000;
 const PROGRESS_URL_RE = /https?:\/\/\S+/g;
 
 type SubagentTextKind = 'thinking' | 'text';
-
+type SubagentPhase = 'queued' | 'spawning' | 'running' | 'done' | 'failed' | 'backgrounded';
 
 interface FinishedSubCall {
   readonly name: string;
@@ -75,7 +75,7 @@ export interface ToolCallSubagentSnapshot {
   readonly toolName: string;
   readonly toolCallDescription: string;
   readonly agentName: string | undefined;
-  readonly phase: 'spawning' | 'running' | 'done' | 'failed' | 'backgrounded' | undefined;
+  readonly phase: SubagentPhase | undefined;
   readonly toolCount: number;
   readonly tokens: number;
   readonly isError: boolean;
@@ -508,8 +508,8 @@ export class ToolCallComponent extends Container {
    */
   private subagentText = '';
   private subagentThinkingText = '';
-  // ── Subagent lifecycle state from subagent.spawned/completed/failed ──
-  private subagentPhase: 'spawning' | 'running' | 'done' | 'failed' | 'backgrounded' | undefined;
+  // ── Subagent lifecycle state from subagent.spawned/started/completed/failed ──
+  private subagentPhase: SubagentPhase | undefined;
   /**
    * Authoritative terminal phase for a backgrounded subagent. Set from
    * `BackgroundTaskInfo.status` via `setBackgroundTaskTerminalStatus` once
@@ -874,7 +874,7 @@ export class ToolCallComponent extends Container {
     const shouldTick =
       this.isSingleSubagentView() &&
       this.subagentStartedAtMs !== undefined &&
-      (phase === 'spawning' || phase === 'running');
+      (phase === 'queued' || phase === 'spawning' || phase === 'running');
     if (!shouldTick) {
       this.stopSubagentElapsedTimer();
       return;
@@ -882,7 +882,7 @@ export class ToolCallComponent extends Container {
     if (this.ui === undefined || this.subagentElapsedTimer !== undefined) return;
     this.subagentElapsedTimer = setInterval(() => {
       const latestPhase = this.getDerivedSubagentPhase();
-      if (latestPhase !== 'spawning' && latestPhase !== 'running') {
+      if (latestPhase !== 'queued' && latestPhase !== 'spawning' && latestPhase !== 'running') {
         this.stopSubagentElapsedTimer();
         return;
       }
@@ -909,10 +909,10 @@ export class ToolCallComponent extends Container {
   }
 
   /**
-   * Handles SDK `subagent.spawned`. The child agent is registered, but internal
-   * activity events (`assistant.delta` or `tool.call.started`) may not have
-   * arrived yet, so the UI moves to the 'spawning' placeholder state unless the
-   * agent is running in the background.
+   * Handles SDK `subagent.spawned`. The child agent is registered with the
+   * parent call, but its prompt may still be queued behind other subagents.
+   * `subagent.started` moves it to 'running' when the child turn actually
+   * begins.
    */
   onSubagentSpawned(meta: {
     agentId: string;
@@ -921,9 +921,30 @@ export class ToolCallComponent extends Container {
   }): void {
     this.subagentAgentId = meta.agentId;
     this.subagentAgentName = meta.agentName;
-    this.subagentPhase = meta.runInBackground ? 'backgrounded' : 'spawning';
+    this.subagentPhase = meta.runInBackground ? 'backgrounded' : 'queued';
     this.subagentStartedAtMs = Date.now();
     this.subagentEndedAtMs = undefined;
+    this.syncSubagentElapsedTimer();
+    this.headerText.setText(this.buildHeader());
+    this.rebuildContent();
+    this.notifySnapshotChange();
+    this.ui?.requestRender();
+  }
+
+  /** Handles SDK `subagent.started` once a queued child turn begins. */
+  onSubagentStarted(meta: {
+    agentId: string;
+    agentName?: string | undefined;
+    runInBackground: boolean;
+  }): void {
+    this.subagentAgentId = meta.agentId;
+    this.subagentAgentName = meta.agentName;
+    if (
+      !meta.runInBackground &&
+      (this.subagentPhase === undefined || this.subagentPhase === 'queued')
+    ) {
+      this.subagentPhase = 'running';
+    }
     this.syncSubagentElapsedTimer();
     this.headerText.setText(this.buildHeader());
     this.rebuildContent();
@@ -1078,7 +1099,11 @@ export class ToolCallComponent extends Container {
       this.subagentText += text;
     }
     // Child-agent activity means it is running unless already terminal/backgrounded.
-    if (this.subagentPhase === undefined || this.subagentPhase === 'spawning') {
+    if (
+      this.subagentPhase === undefined ||
+      this.subagentPhase === 'queued' ||
+      this.subagentPhase === 'spawning'
+    ) {
       this.subagentPhase = 'running';
     }
     this.headerText.setText(this.buildHeader());
@@ -1097,7 +1122,11 @@ export class ToolCallComponent extends Container {
         : {}),
     });
     this.upsertSubToolActivity(call.id, call.name, call.args, 'ongoing');
-    if (this.subagentPhase === undefined || this.subagentPhase === 'spawning') {
+    if (
+      this.subagentPhase === undefined ||
+      this.subagentPhase === 'queued' ||
+      this.subagentPhase === 'spawning'
+    ) {
       this.subagentPhase = 'running';
     }
     this.headerText.setText(this.buildHeader());
@@ -1123,6 +1152,13 @@ export class ToolCallComponent extends Container {
       streamingArguments: nextArgsText,
     });
     this.upsertSubToolActivity(delta.id, delta.name ?? existing?.name ?? 'Tool', parsed, 'ongoing');
+    if (
+      this.subagentPhase === undefined ||
+      this.subagentPhase === 'queued' ||
+      this.subagentPhase === 'spawning'
+    ) {
+      this.subagentPhase = 'running';
+    }
     this.headerText.setText(this.buildHeader());
     this.rebuildContent();
     this.notifySnapshotChange();
@@ -1366,6 +1402,7 @@ export class ToolCallComponent extends Container {
 
   /**
    * Header phase/token chip. No chip is shown when phase is undefined.
+   *   queued        -> queued
    *   spawning      -> starting
    *   running       -> running
    *   done          -> N tools, 8.4k tok
@@ -1377,6 +1414,9 @@ export class ToolCallComponent extends Container {
     const dim = chalk.dim;
     const parts: string[] = [];
     switch (this.subagentPhase) {
+      case 'queued':
+        parts.push('○ queued');
+        break;
       case 'spawning':
         parts.push('↻ starting…');
         break;
@@ -1425,13 +1465,7 @@ export class ToolCallComponent extends Container {
     return this.toolCall.name === 'Agent' && this.hasSubagentState();
   }
 
-  private getDerivedSubagentPhase():
-    | 'spawning'
-    | 'running'
-    | 'done'
-    | 'failed'
-    | 'backgrounded'
-    | undefined {
+  private getDerivedSubagentPhase(): SubagentPhase | undefined {
     if (this.backgroundTaskTerminalPhase !== undefined) {
       return this.backgroundTaskTerminalPhase;
     }
@@ -1463,9 +1497,7 @@ export class ToolCallComponent extends Container {
     return `${bullet}${label} ${status}${descriptionText}${stats}`;
   }
 
-  private formatSingleSubagentStatus(
-    phase: 'spawning' | 'running' | 'done' | 'failed' | 'backgrounded' | undefined,
-  ): string {
+  private formatSingleSubagentStatus(phase: SubagentPhase | undefined): string {
     switch (phase) {
       case 'done':
         return chalk.hex(this.colors.success)('Completed');
@@ -1475,6 +1507,8 @@ export class ToolCallComponent extends Container {
         return chalk.hex(this.colors.primary)('Running');
       case 'backgrounded':
         return 'Backgrounded';
+      case 'queued':
+        return chalk.hex(this.colors.primary)('Queued');
       case 'spawning':
       case undefined:
         return chalk.hex(this.colors.primary)('Starting');

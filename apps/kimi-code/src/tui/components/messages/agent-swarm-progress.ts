@@ -9,11 +9,8 @@ const FRAME_INTERVAL_MS = 80;
 const BRAILLE_BAR_MIN_WIDTH = 5;
 const BRAILLE_BAR_MAX_WIDTH = 8;
 const BRAILLE_EMPTY = '⣀';
-const BRAILLE_SPAWNING_RIGHT = '⣷';
-const BRAILLE_SPAWNING_LEFT = '⣾';
 const BRAILLE_RIGHT_COLUMN_FULL = '⢸';
-const BRAILLE_LEVELS = ['⡀', '⣀', '⣄', '⣤', '⣦', '⣶', '⣷', '⣿'] as const;
-const SPAWNING_PHASE_GROUP_SIZE = 2;
+const BRAILLE_LEVELS = ['⣀', '⣄', '⣤', '⣦', '⣶', '⣷', '⣿'] as const;
 const PHASE_LABEL_WIDTH = 'Completed'.length;
 const MIN_LABEL_WIDTH = PHASE_LABEL_WIDTH;
 const MAX_LATEST_MODEL_CHARS = 2_000;
@@ -21,12 +18,17 @@ const COMPLETE_FILL_MS = 360;
 const FAILED_PLACEHOLDER_RED_FACTOR = 0.75;
 const FAILED_PLACEHOLDER_NON_RED_FACTOR = 0.25;
 const ORCHESTRATING_LABEL = 'Orchestrating...';
-const SPAWNING_LABEL = 'Spawning...';
+const QUEUED_LABEL = 'Queued...';
 
-type AgentSwarmPhase = 'pending' | 'spawning' | 'working' | 'completed' | 'failed' | 'cancelled';
+type AgentSwarmPhase =
+  | 'pending'
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
 
 interface AgentSwarmMember {
-  readonly index: number;
   readonly id: string;
   agentId?: string;
   phase: AgentSwarmPhase;
@@ -63,9 +65,9 @@ export interface AgentSwarmProgressOptions {
 }
 
 const PHASE_LABELS: Record<AgentSwarmPhase, string> = {
-  pending: 'Spawning',
-  spawning: 'Spawning',
-  working: 'Working',
+  pending: 'Queued',
+  queued: 'Queued',
+  running: 'Running',
   completed: 'Completed',
   failed: 'Failed',
   cancelled: 'Cancelled',
@@ -78,7 +80,6 @@ export class AgentSwarmProgressComponent implements Component {
   private readonly colors: ColorPalette;
   private readonly requestRender: (() => void) | undefined;
   private inputComplete = false;
-  private frame = 0;
   private timer: ReturnType<typeof setInterval> | undefined;
 
   constructor(options: AgentSwarmProgressOptions) {
@@ -119,7 +120,7 @@ export class AgentSwarmProgressComponent implements Component {
     if (!this.inputComplete) {
       this.inputComplete = true;
       for (const member of this.members) {
-        if (member.phase === 'pending') member.phase = 'spawning';
+        if (member.phase === 'pending') member.phase = 'queued';
       }
     }
     this.startAnimationIfNeeded();
@@ -132,7 +133,16 @@ export class AgentSwarmProgressComponent implements Component {
     const member = this.findMemberForSubagent(input.agentId, input.description);
     if (member === undefined) return;
     member.agentId = input.agentId;
-    if (this.inputComplete && member.phase === 'pending') member.phase = 'spawning';
+    if (member.phase === 'pending') member.phase = 'queued';
+    this.startAnimationIfNeeded();
+  }
+
+  markStarted(agentId: string): void {
+    const member = this.findMemberByAgentId(agentId);
+    if (member === undefined) return;
+    if (member.phase === 'pending' || member.phase === 'queued') {
+      member.phase = 'running';
+    }
     this.startAnimationIfNeeded();
   }
 
@@ -146,7 +156,9 @@ export class AgentSwarmProgressComponent implements Component {
     const member = this.findMemberByAgentId(input.agentId);
     if (member === undefined) return;
     member.ticks += 1;
-    if (member.phase === 'pending' || member.phase === 'spawning') member.phase = 'working';
+    if (member.phase === 'pending' || member.phase === 'queued') {
+      member.phase = 'running';
+    }
   }
 
   appendModelDelta(input: {
@@ -158,6 +170,9 @@ export class AgentSwarmProgressComponent implements Component {
     member.latestModelText = `${member.latestModelText}${input.delta}`.slice(
       -MAX_LATEST_MODEL_CHARS,
     );
+    if (member.phase === 'pending' || member.phase === 'queued') {
+      member.phase = 'running';
+    }
   }
 
   appendAssistantDelta(input: {
@@ -191,6 +206,22 @@ export class AgentSwarmProgressComponent implements Component {
     member.phase = 'cancelled';
     delete member.completedAtMs;
     delete member.failedAtMs;
+  }
+
+  markActiveCancelled(): void {
+    for (const member of this.members) {
+      if (
+        member.phase === 'completed' ||
+        member.phase === 'failed' ||
+        member.phase === 'cancelled'
+      ) {
+        continue;
+      }
+      member.phase = 'cancelled';
+      delete member.completedAtMs;
+      delete member.failedAtMs;
+    }
+    this.startAnimationIfNeeded();
   }
 
   applyResult(output: string): void {
@@ -294,13 +325,11 @@ export class AgentSwarmProgressComponent implements Component {
       snapshot.phase,
       barWidth,
       this.colors,
-      this.frame,
-      member.index,
       snapshot.phaseElapsedMs,
     );
     const prefix = `${id} ${bar} `;
     const labelWidth = Math.max(1, width - visibleWidth(prefix));
-    const label = renderCellLabel(snapshot, labelWidth, this.colors);
+    const label = renderCellLabel(member, snapshot, labelWidth, this.colors);
     return prefix + label;
   }
 
@@ -333,7 +362,7 @@ export class AgentSwarmProgressComponent implements Component {
     if (count <= this.members.length) return;
     this.members = [
       ...this.members,
-      ...createMembers(count, this.inputComplete ? 'spawning' : 'pending').slice(this.members.length),
+      ...createMembers(count, this.inputComplete ? 'queued' : 'pending').slice(this.members.length),
     ];
   }
 
@@ -352,7 +381,6 @@ export class AgentSwarmProgressComponent implements Component {
     if (!this.hasAnimatedMembers()) return;
     const requestRender = this.requestRender;
     this.timer = setInterval(() => {
-      this.frame += 1;
       requestRender();
       if (!this.hasAnimatedMembers()) this.dispose();
     }, FRAME_INTERVAL_MS);
@@ -364,7 +392,6 @@ export class AgentSwarmProgressComponent implements Component {
   private hasAnimatedMembers(): boolean {
     const now = Date.now();
     return this.members.some((member) => {
-      if (member.phase === 'spawning') return true;
       return (
         member.phase === 'completed' &&
         member.completedAtMs !== undefined &&
@@ -380,7 +407,6 @@ export class AgentSwarmProgressComponent implements Component {
 
 function createMembers(count: number, phase: AgentSwarmPhase): AgentSwarmMember[] {
   return Array.from({ length: count }, (_item, index) => ({
-    index,
     id: String(index + 1).padStart(3, '0'),
     phase,
     ticks: 0,
@@ -485,17 +511,15 @@ function brailleBar(
   phase: AgentSwarmPhase,
   width: number,
   colors: ColorPalette,
-  frame: number,
-  memberIndex: number,
   phaseElapsedMs: number,
 ): string {
   const innerWidth = Math.max(1, width);
   switch (phase) {
     case 'pending':
       return '';
-    case 'spawning':
-      return bracketBar(spawningBrailleBar(innerWidth, frame, memberIndex, colors), colors);
-    case 'working':
+    case 'queued':
+      return bracketBar(accumulatedBrailleBar(ticks, innerWidth, colors.textDim, colors), colors);
+    case 'running':
       return bracketBar(accumulatedBrailleBar(ticks, innerWidth, colors.success, colors), colors);
     case 'completed':
       return bracketBar(
@@ -522,11 +546,10 @@ function bracketBar(content: string, colors: ColorPalette): string {
 function phaseColor(phase: AgentSwarmPhase, colors: ColorPalette): string {
   switch (phase) {
     case 'pending':
+    case 'queued':
       return colors.textDim;
-    case 'spawning':
+    case 'running':
       return colors.textDim;
-    case 'working':
-      return colors.primary;
     case 'completed':
       return colors.success;
     case 'failed':
@@ -537,13 +560,16 @@ function phaseColor(phase: AgentSwarmPhase, colors: ColorPalette): string {
 }
 
 function renderCellLabel(
+  member: AgentSwarmMember,
   snapshot: AgentSwarmSnapshot,
   width: number,
   colors: ColorPalette,
 ): string {
   const latestLine = latestNonEmptyLine(snapshot.latestModelText);
-  if (snapshot.phase === 'working' && latestLine.length > 0) {
-    return truncateWithColor(latestLine, width, colors.textDim);
+  if (snapshot.phase === 'running') {
+    const itemText = collapseWhitespace(member.itemText);
+    const text = latestLine.length > 0 ? latestLine : itemText;
+    if (text.length > 0) return truncateWithColor(text, width, colors.textDim);
   }
   return truncateWithColor(PHASE_LABELS[snapshot.phase], width, phaseColor(snapshot.phase, colors));
 }
@@ -556,7 +582,7 @@ function renderPendingCell(
   const id = chalk.hex(colors.textDim)(member.id);
   const prefix = `${id} `;
   const itemText = collapseWhitespace(member.itemText);
-  const label = itemText.length > 0 ? itemText : SPAWNING_LABEL;
+  const label = itemText.length > 0 ? itemText : QUEUED_LABEL;
   const labelWidth = Math.max(1, width - visibleWidth(prefix));
   return prefix + truncateWithColor(label, labelWidth, colors.textDim);
 }
@@ -641,31 +667,6 @@ function parsePartialJsonString(
 function padAnsi(text: string, width: number): string {
   const truncated = truncateToWidth(text, width);
   return truncated + ' '.repeat(Math.max(0, width - visibleWidth(truncated)));
-}
-
-function spawningBrailleBar(
-  width: number,
-  frame: number,
-  memberIndex: number,
-  colors: ColorPalette,
-): string {
-  if (width <= 1) {
-    return chalk.hex(colors.textMuted)(BRAILLE_SPAWNING_RIGHT);
-  }
-  let out = '';
-  const maxPosition = width - 1;
-  const period = maxPosition * 2;
-  const phaseOffset = Math.floor(memberIndex / SPAWNING_PHASE_GROUP_SIZE);
-  const position = (frame + phaseOffset) % period;
-  const movingRight = position <= maxPosition;
-  const cursorCell = movingRight ? position : period - position;
-  const cursorChar = movingRight ? BRAILLE_SPAWNING_RIGHT : BRAILLE_SPAWNING_LEFT;
-  for (let i = 0; i < width; i += 1) {
-    out += chalk.hex(i === cursorCell ? colors.textMuted : colors.textDim)(
-      i === cursorCell ? cursorChar : BRAILLE_EMPTY,
-    );
-  }
-  return out;
 }
 
 function completedDisplayTicks(ticks: number, width: number, phaseElapsedMs: number): number {

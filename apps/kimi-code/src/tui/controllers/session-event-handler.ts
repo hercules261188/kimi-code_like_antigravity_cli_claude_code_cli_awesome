@@ -19,6 +19,7 @@ import type {
   SubagentCompletedEvent,
   SubagentFailedEvent,
   SubagentSpawnedEvent,
+  SubagentStartedEvent,
   ThinkingDeltaEvent,
   ToolCallDeltaEvent,
   ToolCallStartedEvent,
@@ -215,6 +216,7 @@ export class SessionEventHandler {
       case 'compaction.blocked': break;
       case 'compaction.cancelled': this.handleCompactionCancel(event, sendQueued); break;
       case 'subagent.spawned': this.handleSubagentSpawned(event); break;
+      case 'subagent.started': this.handleSubagentStarted(event); break;
       case 'subagent.completed': this.handleSubagentCompleted(event); break;
       case 'subagent.failed': this.handleSubagentFailed(event); break;
       case 'background.task.started':
@@ -260,6 +262,8 @@ export class SessionEventHandler {
           agentId: subagentId,
           toolCallId: event.toolCallId,
         });
+      } else if (event.type === 'subagent.started') {
+        swarmProgress.markStarted(event.subagentId);
       } else if (event.type === 'turn.ended') {
         if (event.reason === 'cancelled') {
           swarmProgress.markCancelled(subagentId);
@@ -334,6 +338,7 @@ export class SessionEventHandler {
       case 'subagent.completed':
       case 'subagent.failed':
       case 'subagent.spawned':
+      case 'subagent.started':
       case 'tool.progress':
       case 'tool.list.updated':
       case 'mcp.server.status':
@@ -384,9 +389,11 @@ export class SessionEventHandler {
     });
   }
 
-  private handleTurnEnd(_event: TurnEndedEvent, sendQueued: (item: QueuedMessage) => void): void {
-    void _event;
+  private handleTurnEnd(event: TurnEndedEvent, sendQueued: (item: QueuedMessage) => void): void {
     this.host.streamingUI.flushNow();
+    if (event.reason === 'cancelled') {
+      this.markActiveAgentSwarmsCancelled();
+    }
     const todos = this.host.state.todoPanel.getTodos();
     if (todos.length > 0 && todos.every((t) => t.status === 'done')) {
       this.host.streamingUI.setTodoList([]);
@@ -437,6 +444,17 @@ export class SessionEventHandler {
     if (text !== undefined) this.host.showStatus(text);
   }
 
+  private markActiveAgentSwarmsCancelled(): void {
+    let visible: AgentSwarmProgressComponent | undefined;
+    for (const progress of this.agentSwarmProgress.values()) {
+      progress.markActiveCancelled();
+      visible = progress;
+    }
+    if (visible !== undefined) {
+      this.host.setAgentSwarmProgress(visible);
+    }
+  }
+
   private isAnthropicSessionActive(): boolean {
     const { state } = this.host;
     const providerKey = state.appState.availableModels[state.appState.model]?.provider;
@@ -451,6 +469,7 @@ export class SessionEventHandler {
     const reason = event.reason;
     if (reason === 'error') return;
     if (reason === 'aborted' || reason === undefined || reason === '') {
+      this.markActiveAgentSwarmsCancelled();
       this.host.showStatus('Interrupted by user', this.host.state.theme.colors.error);
       return;
     }
@@ -608,7 +627,11 @@ export class SessionEventHandler {
     const matchedCall = streamingUI.completeToolResult(event.toolCallId, resultData);
     const progress = this.agentSwarmProgress.get(event.toolCallId);
     if (progress !== undefined) {
-      progress.applyResult(resultData.output);
+      if (event.isError === true && isUserCancelledSubagentError(resultData.output)) {
+        progress.markActiveCancelled();
+      } else {
+        progress.applyResult(resultData.output);
+      }
       this.host.setAgentSwarmProgress(progress);
     }
     if (matchedCall !== undefined && matchedCall.name === 'TodoList' && !event.isError) {
@@ -881,6 +904,41 @@ export class SessionEventHandler {
     tc ??= this.createStandaloneSubagentToolCall(event);
     if (tc === undefined) return;
     tc.onSubagentSpawned({
+      agentId: event.subagentId,
+      agentName: event.subagentName,
+      runInBackground: event.runInBackground,
+    });
+  }
+
+  private handleSubagentStarted(event: SubagentStartedEvent): void {
+    const { streamingUI } = this.host;
+    const existing = this.subagentInfo.get(event.subagentId);
+    if (existing === undefined) {
+      this.subagentInfo.set(event.subagentId, {
+        parentToolCallId: event.parentToolCallId,
+        name: event.subagentName,
+      });
+    }
+
+    if (event.runInBackground) return;
+
+    const swarmProgress = this.agentSwarmProgress.get(event.parentToolCallId);
+    if (swarmProgress !== undefined) {
+      swarmProgress.markStarted(event.subagentId);
+      this.host.setAgentSwarmProgress(swarmProgress);
+      return;
+    }
+
+    let tc = streamingUI.getToolComponent(event.parentToolCallId);
+    if (tc === undefined) {
+      const toolCall = streamingUI.getActiveToolCall(event.parentToolCallId);
+      if (toolCall !== undefined) {
+        streamingUI.onToolCallStart(toolCall);
+        tc = streamingUI.getToolComponent(event.parentToolCallId);
+      }
+    }
+    if (tc === undefined) return;
+    tc.onSubagentStarted({
       agentId: event.subagentId,
       agentName: event.subagentName,
       runInBackground: event.runInBackground,
