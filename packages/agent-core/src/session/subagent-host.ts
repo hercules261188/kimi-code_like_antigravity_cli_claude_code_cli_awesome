@@ -600,7 +600,7 @@ export class SessionSubagentHost {
   }
 
   private emitSubagentSuspended(event: QueuedSubagentSuspended): void {
-    const parent = this.session.getReadyAgent(this.ownerAgentId);
+    const parent = this.session.getReadyAgent?.(this.ownerAgentId);
     parent?.emitEvent({
       type: 'subagent.suspended',
       subagentId: event.agentId,
@@ -647,27 +647,32 @@ function lastAssistantText(agent: Agent): string {
 }
 
 function isFirstOutputEvent(event: AgentEvent): boolean {
-  switch (event.type) {
-    case 'assistant.delta':
-    case 'thinking.delta':
-      return event.delta.length > 0;
-    case 'tool.call.delta':
-      return (event.name?.length ?? 0) > 0 || (event.argumentsPart?.length ?? 0) > 0;
-    case 'tool.call.started':
-      return true;
-    default:
-      return false;
+  if (event.type === 'assistant.delta' || event.type === 'thinking.delta') {
+    return event.delta.length > 0;
   }
+  if (event.type === 'tool.call.delta') {
+    return (event.name?.length ?? 0) > 0 || (event.argumentsPart?.length ?? 0) > 0;
+  }
+  return event.type === 'tool.call.started';
 }
 
 function isRateLimit429Error(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
+  if (hasRateLimitStatus(error)) return true;
   if (message.includes(RATE_LIMIT_429_MESSAGE)) return true;
   if (message.includes('provider.rate_limit')) return true;
-  if (message.includes('429') && message.toLowerCase().includes('rate limit')) return true;
-  if (!message.includes(RATE_LIMIT_429_BODY)) return hasRateLimitStatus(error);
-  if (message.includes('429') || message.includes('provider.rate_limit')) return true;
-  return hasRateLimitStatus(error);
+  const normalized = message.toLowerCase();
+  if (!/\b429\b/.test(normalized)) return false;
+  if (normalized.includes('apistatuserror')) return true;
+  if (normalized.includes('too many requests')) return true;
+  if (normalized.includes('rate limit')) return true;
+  if (normalized.includes('rate_limit')) return true;
+  if (normalized.includes('rate-limited')) return true;
+  if (normalized.includes('max rpm')) return true;
+  if (normalized.includes('max tpm')) return true;
+  if (normalized.includes('requests per minute')) return true;
+  if (normalized.includes('tokens per minute')) return true;
+  return message.includes(RATE_LIMIT_429_BODY);
 }
 
 function hasRateLimitStatus(error: unknown): boolean {

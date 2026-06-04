@@ -5,7 +5,7 @@ import {
   AgentSwarmProgressEstimator,
   type AgentSwarmProgressEstimatorPhase,
 } from '#/tui/components/messages/agent-swarm-progress-estimator';
-import { SUCCESS_MARK } from '#/tui/constant/symbols';
+import { FAILURE_MARK, SUCCESS_MARK } from '#/tui/constant/symbols';
 import type { ColorPalette } from '#/tui/theme/colors';
 
 const MIN_CELL_WIDTH = 32;
@@ -970,7 +970,7 @@ function renderCellLabel(
     if (text.length > 0) return truncateWithColor(text, width, colors.textDim);
   }
   if (snapshot.phase === 'failed' && member.failureText !== undefined) {
-    return truncateWithColor(`Failed: ${member.failureText}`, width, colors.error);
+    return truncateWithColor(`${FAILURE_MARK}${member.failureText}`, width, colors.error);
   }
   if (snapshot.phase === 'suspended' && member.suspendedReason !== undefined) {
     return truncateWithColor(`Suspended: ${member.suspendedReason}`, width, colors.warning);
@@ -1046,8 +1046,22 @@ function collapseWhitespace(text: string): string {
 
 function normalizeFailureText(text: string | undefined): string | undefined {
   if (text === undefined) return undefined;
-  const normalized = collapseWhitespace(text);
+  const nestedFailureText = nestedAgentSwarmFailureText(text);
+  const normalized = stripAgentSwarmPrefix(collapseWhitespace(nestedFailureText ?? text));
   return normalized.length > 0 ? normalized : undefined;
+}
+
+function nestedAgentSwarmFailureText(text: string): string | undefined {
+  if (!/^\s*agent_swarm:\s*failed\b/m.test(text)) return undefined;
+  const match = /^\s*subagent error:\s*([\s\S]*?)(?=\n\[agent \d+\]\n|$)/m.exec(text);
+  if (match === null) return undefined;
+  const failureText = match[1];
+  if (failureText === undefined) return undefined;
+  return nestedAgentSwarmFailureText(failureText) ?? failureText;
+}
+
+function stripAgentSwarmPrefix(text: string): string {
+  return text.replace(/^agent_swarm:\s*(?:failed|completed)?\s*/i, '').trim();
 }
 
 function normalizeStatusText(text: string): string | undefined {

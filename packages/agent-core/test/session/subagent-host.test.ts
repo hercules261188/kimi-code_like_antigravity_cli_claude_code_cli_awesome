@@ -362,6 +362,86 @@ describe('SessionSubagentHost', () => {
     }
   });
 
+  it('runQueued emits a suspended event when a rate-limited child is requeued', async () => {
+    const parent = testAgent();
+    parent.configure();
+    parent.newEvents();
+
+    const summary =
+      'Recovered from a provider rate limit by retrying the queued subagent with its existing context, then completed the delegated review with enough concrete details for the parent to continue. '.repeat(
+        2,
+      );
+    let generateCalls = 0;
+    const generate: GenerateFn = async (
+      _provider,
+      _systemPrompt,
+      _tools,
+      _history,
+      callbacks,
+    ) => {
+      generateCalls += 1;
+      if (generateCalls === 1) {
+        throw new Error(
+          'APIStatusError: 429 request id: req-429, Your account example-account<YOUR_API_KEY> request reached user+model max RPM: 50 (current: 389) for model example-model, please try again later',
+        );
+      }
+      await callbacks?.onMessagePart?.({ type: 'text', text: summary });
+      return textResult(summary);
+    };
+    const child = testAgent({
+      generate,
+      initialConfig: {
+        providers: {},
+        loopControl: { maxRetriesPerStep: 1 },
+      },
+    });
+    child.configure();
+
+    const session = fakeSession(parent.agent, child.agent);
+    const host = new SessionSubagentHost(session, 'main');
+
+    await expect(host.runQueued([queuedTask(1)], { signal })).resolves.toMatchObject([
+      {
+        agentId: 'agent-0',
+        status: 'completed',
+        result: summary.trim(),
+      },
+    ]);
+
+    expect(generateCalls).toBe(2);
+    expect(parent.allEvents).toContainEqual(
+      expect.objectContaining({
+        type: '[rpc]',
+        event: 'subagent.suspended',
+        args: expect.objectContaining({
+          subagentId: 'agent-0',
+          subagentName: 'coder',
+          parentToolCallId: 'call_swarm',
+          runInBackground: false,
+          reason: 'Provider rate limit; subagent requeued for retry.',
+        }),
+      }),
+    );
+    expect(
+      parent.allEvents
+        .filter((event) => event.type === '[rpc]')
+        .map((event) => event.event)
+        .filter((event) => typeof event === 'string' && event.startsWith('subagent.')),
+    ).toEqual([
+      'subagent.spawned',
+      'subagent.started',
+      'subagent.suspended',
+      'subagent.started',
+      'subagent.completed',
+    ]);
+    expect(parent.allEvents).not.toContainEqual(
+      expect.objectContaining({
+        type: '[rpc]',
+        event: 'subagent.failed',
+      }),
+    );
+  });
+
   it('fires subagent lifecycle hooks around the child turn', async () => {
     const child = testAgent();
     const calls: Array<{ readonly event: string; readonly childLlmCallCount: number }> = [];
@@ -634,7 +714,9 @@ describe('SessionSubagentHost', () => {
     const routedTo = await Promise.race([
       child.untilToolCall({ output: 'moon-result' }).then(() => 'child'),
       parent.untilToolCall({ output: 'moon-result' }).then(() => 'parent'),
-      new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 50)),
+      new Promise<'timeout'>((resolve) => setTimeout(() => {
+        resolve('timeout');
+      }, 50)),
     ]);
 
     expect(routedTo).toBe('child');

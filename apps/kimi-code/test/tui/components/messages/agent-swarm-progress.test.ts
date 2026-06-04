@@ -27,7 +27,8 @@ describe('AgentSwarmProgressComponent', () => {
 
     const output = strip(component.render(100).join('\n'));
 
-    expect(output).toContain('Agent swarm: Review changed files');
+    expect(output).toContain('Agent swarm');
+    expect(output).toContain('Review changed files');
     expect(output).toContain('Orchestrating...');
     expect(output).not.toContain('01');
   });
@@ -103,7 +104,32 @@ describe('AgentSwarmProgressComponent', () => {
 
     const output = strip(component.render(100).join('\n'));
 
-    expect(output).toContain('Failed: Provider request failed Retry budget exhausted');
+    expect(output).toContain('✗ Provider request failed Retry budget exhausted');
+    expect(output).not.toContain('Failed:');
+  });
+
+  it('renders suspended subagents and clears the state when they start again', () => {
+    const component = new AgentSwarmProgressComponent({
+      description: 'Review changed files',
+      colors: darkColors,
+    });
+
+    component.registerSubagent({ agentId: 'agent-1', description: 'Review changed files #1 (coder)' });
+    component.markStarted('agent-1');
+    component.markSuspended({
+      agentId: 'agent-1',
+      reason: 'Provider rate limit; subagent requeued for retry.',
+    });
+
+    let output = strip(component.render(100).join('\n'));
+    expect(output).toContain('Suspended: Provider rate limit; subagent requeued for retry.');
+    expect(output).not.toContain('Failed');
+
+    component.markStarted('agent-1');
+
+    output = strip(component.render(100).join('\n'));
+    expect(output).toContain('Running');
+    expect(output).not.toContain('Suspended');
   });
 
   it('renders failure details from AgentSwarm result output', () => {
@@ -135,7 +161,51 @@ describe('AgentSwarmProgressComponent', () => {
 
     const output = strip(component.render(100).join('\n'));
 
-    expect(output).toContain('Failed: Agent timed out after 30s.');
+    expect(output).toContain('✗ Agent timed out after 30s.');
+    expect(output).not.toContain('Failed:');
+  });
+
+  it('strips nested AgentSwarm prefixes from failure details', () => {
+    const component = new AgentSwarmProgressComponent({
+      description: 'Review changed files',
+      colors: darkColors,
+    });
+
+    component.updateArgs({
+      description: 'Review changed files',
+      items: ['src/a.ts'],
+    });
+    component.applyResult([
+      'agent_swarm: failed',
+      'description: Review changed files',
+      'items: 1',
+      'completed: 0',
+      'failed: 1',
+      '',
+      '[agent 1]',
+      'agent_id: agent-1',
+      'item: "src/a.ts"',
+      'actual_subagent_type: coder',
+      'status: failed',
+      'description: Review changed files #1 (coder)',
+      '',
+      'subagent error: agent_swarm: failed',
+      'description: Nested review',
+      'items: 1',
+      'completed: 0',
+      'failed: 1',
+      '',
+      '[agent 1]',
+      'status: failed',
+      '',
+      'subagent error: [provider.rate_limit] 429 request reached user+model max RPM.',
+    ].join('\n'));
+
+    const output = strip(component.render(120).join('\n'));
+
+    expect(output).toContain('✗ [provider.rate_limit] 429 request reached user+model max RPM.');
+    expect(output).not.toContain('agent_swarm:');
+    expect(output).not.toContain('Failed:');
   });
 
   it('renders completed summaries from AgentSwarm result output', () => {
@@ -209,7 +279,6 @@ describe('AgentSwarmProgressComponent', () => {
     expect(output).toContain('001 [');
     expect(output).toContain('Reviewing');
     expect(output).toContain('…');
-    expect(output).not.toContain('Working');
   });
 
   it('renders boosted fractional progress ticks without leaking undefined cells', () => {
@@ -277,7 +346,8 @@ describe('AgentSwarmProgressComponent', () => {
     });
     const output = strip(component.render(100).join('\n'));
 
-    expect(output).toContain('Agent swarm: Review changed files');
+    expect(output).toContain('Agent swarm');
+    expect(output).toContain('Review changed files');
     expect(output).toContain('001 src/a.ts');
     expect(output).toContain('002 src/b.ts');
   });

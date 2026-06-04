@@ -2216,7 +2216,7 @@ command = "vim"
     });
   });
 
-  it('renders AgentSwarm progress as the activity pane instead of tool-card body', async () => {
+  it('renders AgentSwarm progress in the transcript instead of the tool-card body', async () => {
     const { driver } = await makeDriver();
     const sendQueued = vi.fn();
 
@@ -2290,9 +2290,50 @@ command = "vim"
       } as Event,
       sendQueued,
     );
-    let activity = stripSgr(renderActivity(driver));
-    expect(activity).toContain('01 [');
-    expect(activity).toContain('Reviewing src/a.ts');
+    let transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('01 [');
+    expect(transcript).toContain('Reviewing src/a.ts');
+
+    vi.mocked(driver.state.ui.requestRender).mockClear();
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'subagent.suspended',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        parentToolCallId: 'call_swarm',
+        subagentId: 'agent-1',
+        subagentName: 'coder',
+        description: 'Review changed files #1 (coder)',
+        runInBackground: false,
+        reason: 'Provider rate limit; subagent requeued for retry.',
+      } as Event,
+      sendQueued,
+    );
+    expect(driver.state.ui.requestRender).toHaveBeenCalled();
+
+    transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('Suspended: Provider rate limit; subagent');
+    expect(transcript).not.toContain('Failed');
+
+    vi.mocked(driver.state.ui.requestRender).mockClear();
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'subagent.started',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        parentToolCallId: 'call_swarm',
+        subagentId: 'agent-1',
+        subagentName: 'coder',
+        description: 'Review changed files #1 (coder)',
+        runInBackground: false,
+      } as Event,
+      sendQueued,
+    );
+    expect(driver.state.ui.requestRender).toHaveBeenCalled();
+
+    transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('01 [');
+    expect(transcript).not.toContain('Suspended');
 
     vi.mocked(driver.state.ui.requestRender).mockClear();
     driver.sessionEventHandler.handleEvent(
@@ -2307,13 +2348,14 @@ command = "vim"
     );
     expect(driver.state.ui.requestRender).toHaveBeenCalled();
 
-    activity = stripSgr(renderActivity(driver));
-    expect(activity).toContain('Agent swarm: Review changed files');
-    expect(activity).toContain('001 [');
-    expect(activity).toContain('✓ Reviewing src/a.ts');
-    expect(activity).not.toContain('Completed');
-    expect(activity).toContain('002 Queued...');
-    expect(activity).not.toContain('002 [');
+    transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('Agent swarm');
+    expect(transcript).toContain('Review changed files');
+    expect(transcript).toContain('001 [');
+    expect(transcript).toContain('Reviewing src/a.ts');
+    expect(transcript).not.toContain('Completed');
+    expect(transcript).toContain('002 Queued...');
+    expect(transcript).not.toContain('002 [');
 
     driver.sessionEventHandler.handleEvent(
       {
@@ -2327,13 +2369,9 @@ command = "vim"
       sendQueued,
     );
 
-    activity = stripSgr(renderActivity(driver));
-    expect(activity).toContain('✓ Imports are stable');
-    expect(activity).not.toContain('Completed');
-
-    const transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toContain('Using AgentSwarm');
-    expect(transcript).not.toContain('01');
+    transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('✓ Imports are stable');
+    expect(transcript).not.toContain('Completed');
   });
 
   it('renders AgentSwarm progress while tool args are still streaming', async () => {
@@ -2353,10 +2391,10 @@ command = "vim"
       sendQueued,
     );
 
-    let activity = stripSgr(renderActivity(driver));
-    expect(activity).toContain('Agent swarm');
-    expect(activity).toContain('Orchestrating...');
-    expect(activity).not.toContain('01');
+    let transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('Agent swarm');
+    expect(transcript).toContain('Orchestrating...');
+    expect(transcript).not.toContain('01');
 
     driver.sessionEventHandler.handleEvent(
       {
@@ -2370,10 +2408,11 @@ command = "vim"
       sendQueued,
     );
 
-    activity = stripSgr(renderActivity(driver));
-    expect(activity).toContain('Agent swarm: Review changed files');
-    expect(activity).toContain('001 src/a.ts');
-    expect(activity).toContain('002 src/b');
+    transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('Agent swarm');
+    expect(transcript).toContain('Review changed files');
+    expect(transcript).toContain('001 src/a.ts');
+    expect(transcript).toContain('002 src/b');
 
     driver.sessionEventHandler.handleEvent(
       {
@@ -2389,10 +2428,10 @@ command = "vim"
       sendQueued,
     );
 
-    activity = stripSgr(renderActivity(driver));
-    expect(activity).toContain('001 Queued...');
-    expect(activity).not.toContain('001 [');
-    expect(activity).toContain('002 src/b');
+    transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('001 Queued...');
+    expect(transcript).not.toContain('001 [');
+    expect(transcript).toContain('002 src/b');
 
     driver.sessionEventHandler.handleEvent(
       {
@@ -2411,11 +2450,11 @@ command = "vim"
       sendQueued,
     );
 
-    activity = stripSgr(renderActivity(driver));
-    expect(activity).toContain('001 Queued...');
-    expect(activity).toContain('002 Queued...');
-    expect(activity).not.toContain('001 [');
-    expect(activity).not.toContain('002 [');
+    transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).toContain('001 Queued...');
+    expect(transcript).toContain('002 Queued...');
+    expect(transcript).not.toContain('001 [');
+    expect(transcript).not.toContain('002 [');
   });
 
   it('shows plan review reject on the plan card without an approval notice', async () => {

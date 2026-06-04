@@ -133,12 +133,15 @@ export class BtwPanelController {
       case 'compaction.started':
       case 'cron.fired':
       case 'error':
+      case 'goal.updated':
       case 'mcp.server.status':
       case 'session.meta.updated':
       case 'skill.activated':
       case 'subagent.completed':
       case 'subagent.failed':
       case 'subagent.spawned':
+      case 'subagent.started':
+      case 'subagent.suspended':
       case 'tool.call.delta':
       case 'tool.call.started':
       case 'tool.list.updated':

@@ -466,6 +466,7 @@ function runPromptTurn(
         case 'compaction.completed':
         case 'compaction.started':
         case 'cron.fired':
+        case 'goal.updated':
         case 'mcp.server.status':
         case 'session.meta.updated':
         case 'skill.activated':
@@ -473,6 +474,7 @@ function runPromptTurn(
         case 'subagent.failed':
         case 'subagent.spawned':
         case 'subagent.started':
+        case 'subagent.suspended':
         case 'tool.list.updated':
         case 'turn.started':
         case 'turn.step.completed':

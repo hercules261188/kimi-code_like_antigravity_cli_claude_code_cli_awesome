@@ -20,6 +20,7 @@ import type {
   SubagentFailedEvent,
   SubagentSpawnedEvent,
   SubagentStartedEvent,
+  SubagentSuspendedEvent,
   ThinkingDeltaEvent,
   ToolCallDeltaEvent,
   ToolCallStartedEvent,
@@ -224,6 +225,7 @@ export class SessionEventHandler {
       case 'compaction.cancelled': this.handleCompactionCancel(event, sendQueued); break;
       case 'subagent.spawned': this.handleSubagentSpawned(event); break;
       case 'subagent.started': this.handleSubagentStarted(event); break;
+      case 'subagent.suspended': this.handleSubagentSuspended(event); break;
       case 'subagent.completed': this.handleSubagentCompleted(event); break;
       case 'subagent.failed': this.handleSubagentFailed(event); break;
       case 'background.task.started':
@@ -274,6 +276,12 @@ export class SessionEventHandler {
         });
       } else if (event.type === 'subagent.started') {
         swarmProgress.markStarted(event.subagentId);
+      } else if (event.type === 'subagent.suspended') {
+        swarmProgress.markSuspended({
+          agentId: event.subagentId,
+          reason: event.reason,
+          description: event.description,
+        });
       } else if (event.type === 'subagent.failed') {
         if (isUserCancelledSubagentError(event.error)) {
           swarmProgress.markCancelled(event.subagentId);
@@ -343,6 +351,7 @@ export class SessionEventHandler {
       case 'subagent.failed':
       case 'subagent.spawned':
       case 'subagent.started':
+      case 'subagent.suspended':
       case 'tool.progress':
       case 'tool.list.updated':
       case 'mcp.server.status':
@@ -970,6 +979,28 @@ export class SessionEventHandler {
       agentName: event.subagentName,
       runInBackground: event.runInBackground,
     });
+  }
+
+  private handleSubagentSuspended(event: SubagentSuspendedEvent): void {
+    const existing = this.subagentInfo.get(event.subagentId);
+    if (existing === undefined) {
+      this.subagentInfo.set(event.subagentId, {
+        parentToolCallId: event.parentToolCallId,
+        name: event.subagentName,
+      });
+    }
+
+    if (event.runInBackground) return;
+
+    const swarmProgress = this.agentSwarmProgress.get(event.parentToolCallId);
+    if (swarmProgress !== undefined) {
+      swarmProgress.markSuspended({
+        agentId: event.subagentId,
+        reason: event.reason,
+        description: event.description,
+      });
+      this.host.state.ui.requestRender();
+    }
   }
 
   private handleSubagentCompleted(event: SubagentCompletedEvent): void {
