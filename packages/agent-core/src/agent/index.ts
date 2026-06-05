@@ -214,7 +214,9 @@ export class Agent {
 
   get llm(): KosongLLM {
     const model = this.config.model;
-    const provider = this.config.provider.withThinking(this.config.thinkingLevel);
+    // All provider-level request config (thinking, sampling params, thinking.keep)
+    // is applied in ConfigState.provider so compaction shares it. See get provider().
+    const provider = this.config.provider;
     const loopControl = this.kimiConfig?.loopControl;
     const completionBudgetConfig = resolveCompletionBudget({
       maxOutputSize: this.config.maxOutputSize,

@@ -111,7 +111,6 @@ export class SessionSubagentHost {
   constructor(
     private readonly session: Session,
     private readonly ownerAgentId: string,
-    readonly backgroundTaskTimeoutMs?: number | undefined,
   ) {
     this.launchQueue = new SubagentLaunchQueue(
       (task, options) => this.runQueuedTaskAttempt(task, options),
