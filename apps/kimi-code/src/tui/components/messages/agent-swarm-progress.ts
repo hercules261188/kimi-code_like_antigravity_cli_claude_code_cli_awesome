@@ -23,25 +23,20 @@ const COMPLETE_FILL_MS = 360;
 const FAILED_PLACEHOLDER_RED_FACTOR = 0.75;
 const FAILED_PLACEHOLDER_NON_RED_FACTOR = 0.25;
 const STATUS_BAR_CHAR = '━';
+const TOTAL_STATUS_BAR_GAP = 2;
 const PROMPTING_TEXT_TRAILING_GAP = 1;
 const ACTIVITY_SPINNER_PLACEHOLDER = '  ';
 const AGENT_SWARM_LEFT_INDENT = ' ';
 const AGENT_SWARM_RIGHT_GAP = 1;
+const AGENT_SWARM_GRID_RIGHT_GAP = 1;
 const ORCHESTRATING_LABEL = 'Orchestrating...';
 const PROMPTING_LABEL = 'Prompting...';
-const WORKING_LABEL = ' Working...';
+const WORKING_LABEL = 'Working...';
 const COMPLETED_LABEL = 'Completed.';
 const FAILED_LABEL = 'Failed.';
 const ABORTED_LABEL = 'Aborted.';
 const QUEUED_LABEL = 'Queued...';
 const SUSPENDED_LABEL = 'Suspended...';
-const TOTAL_STATUS_LABEL_WIDTH = Math.max(
-  visibleWidth(WORKING_LABEL),
-  visibleWidth(COMPLETED_LABEL),
-  visibleWidth(FAILED_LABEL),
-  visibleWidth(ABORTED_LABEL),
-  visibleWidth(SUSPENDED_LABEL),
-);
 
 const STATUS_BAR_ORDER = [
   'completed',
@@ -449,7 +444,11 @@ export class AgentSwarmProgressComponent implements Component {
       '',
       this.renderHeader(innerWidth, summary),
       '',
-      ...this.renderGrid(innerWidth, snapshots, nowMs),
+      ...this.renderGrid(
+        Math.max(1, innerWidth - AGENT_SWARM_GRID_RIGHT_GAP),
+        snapshots,
+        nowMs,
+      ),
       '',
       this.renderStatusLine(innerWidth),
       '',
@@ -522,10 +521,10 @@ export class AgentSwarmProgressComponent implements Component {
       totalStatusLabelColor(status, this.members, this.colors),
     );
     if (this.members.length === 0) return truncateToWidth(label, width);
-    const barWidth = Math.max(0, width - visibleWidth(label) - 2);
+    const barWidth = Math.max(0, width - visibleWidth(label) - TOTAL_STATUS_BAR_GAP);
     if (barWidth <= 0) return truncateToWidth(label, width);
     return truncateToWidth(
-      `${label} ${renderStatusPipBar(this.members, barWidth, this.colors)} `,
+      `${label}${' '.repeat(TOTAL_STATUS_BAR_GAP)}${renderStatusPipBar(this.members, barWidth, this.colors)}`,
       width,
     );
   }
@@ -955,7 +954,7 @@ function renderStatusPipBar(
 }
 
 function renderTotalStatusLabel(label: string, color: string): string {
-  return ` ${padAnsi(chalk.hex(color)(label), TOTAL_STATUS_LABEL_WIDTH)}`;
+  return ` ${chalk.hex(color)(label)}`;
 }
 
 function renderInlineStatusLabel(label: string, color: string): string {

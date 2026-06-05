@@ -58,6 +58,19 @@ export class ContextMemory {
     });
   }
 
+  popMatchedMessage(matcher: (origin: PromptOrigin | undefined) => boolean): boolean {
+    const lastDeferred = this.deferredMessages.at(-1);
+    const last = lastDeferred ?? this._history.at(-1);
+    if (last === undefined) return false;
+    if (!matcher(last.origin)) return false;
+    if (lastDeferred !== undefined) {
+      this.deferredMessages.pop();
+    } else {
+      this._history.pop();
+    }
+    return true;
+  }
+
   clear(): void {
     this.agent.records.logRecord({ type: 'context.clear' });
     this._history = [];

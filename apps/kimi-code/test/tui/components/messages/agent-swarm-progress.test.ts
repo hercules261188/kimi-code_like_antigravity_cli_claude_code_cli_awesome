@@ -69,10 +69,15 @@ describe('AgentSwarmProgressComponent', () => {
     component.markStarted('agent-1');
 
     const rendered = component.render(80).map(strip);
+    const statusLine = rendered.find((line) => line.includes('Working...'));
+    const gridLine = rendered.find((line) => line.includes('001 ['));
 
     expect(rendered.every((line) => visibleWidth(line) <= 79)).toBe(true);
     expect(rendered.some((line) => line.includes('Agent swarm'))).toBe(true);
-    expect(rendered.some((line) => line.includes('Working...'))).toBe(true);
+    expect(statusLine).toBeDefined();
+    expect(statusLine?.match(/ *$/)?.[0].length).toBe(0);
+    expect(gridLine).toBeDefined();
+    expect(visibleWidth(gridLine ?? '')).toBeLessThan(visibleWidth(statusLine ?? ''));
   });
 
   it('renders orchestrating and prompting labels in primary blue', () => {
@@ -166,7 +171,7 @@ describe('AgentSwarmProgressComponent', () => {
     component.registerSubagent({ agentId: 'agent-2', description: 'Review changed files #2 (coder)' });
     component.registerSubagent({ agentId: 'agent-3', description: 'Review changed files #3 (coder)' });
 
-    const lines = strip(component.render(96).join('\n')).split('\n');
+    const lines = strip(component.render(97).join('\n')).split('\n');
     const queuedLine = lines.find((line) => line.includes('001 Queued...'));
 
     expect(queuedLine).toBeDefined();
@@ -434,6 +439,7 @@ describe('AgentSwarmProgressComponent', () => {
     expect(promptTextIndex).toBeGreaterThan(0);
     expect(progressBarIndex).toBeGreaterThan(0);
     expect(promptTextIndex).toBe(visibleWidth('  Prompting... '));
+    expect(progressBarIndex).toBe(visibleWidth('  Working...  '));
   });
 
   it('renders the activity spinner before the total status line', () => {
@@ -452,7 +458,7 @@ describe('AgentSwarmProgressComponent', () => {
       .find((line) => line.includes('Working...'));
 
     expect(statusLine).toBeDefined();
-    expect(statusLine?.startsWith(' 🌗  Working...')).toBe(true);
+    expect(statusLine?.startsWith(' 🌗 Working...')).toBe(true);
   });
 
   it('renders working label blue until a subagent completes, then green', () => {
@@ -471,14 +477,14 @@ describe('AgentSwarmProgressComponent', () => {
       const initialRawLine = component.render(80).join('\n')
         .split('\n')
         .find((line) => strip(line).includes('Working...'));
-      expect(initialRawLine).toContain(chalk.hex(darkColors.primary)(' Working...'));
+      expect(initialRawLine).toContain(chalk.hex(darkColors.primary)('Working...'));
 
       component.markCompleted('agent-1');
 
       const partialRawLine = component.render(80).join('\n')
         .split('\n')
         .find((line) => strip(line).includes('Working...'));
-      expect(partialRawLine).toContain(chalk.hex(darkColors.success)(' Working...'));
+      expect(partialRawLine).toContain(chalk.hex(darkColors.success)('Working...'));
     });
   });
 
@@ -500,7 +506,7 @@ describe('AgentSwarmProgressComponent', () => {
       .find((line) => line.includes('Working...'));
 
     expect(statusLine).toBeDefined();
-    expect(statusLine?.startsWith('     Working...')).toBe(true);
+    expect(statusLine?.startsWith('    Working...')).toBe(true);
     expect(statusLine).not.toContain('🌗');
     expect(statusLine).not.toContain('🌘');
   });

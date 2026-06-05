@@ -1,9 +1,8 @@
 import type { Agent } from '..';
 import type { ContentPart } from '@moonshot-ai/kosong';
 
-import SWARM_MODE_REMINDER from './swarm-mode-reminder.md';
-
-const SWARM_MODE_EXIT_REMINDER = 'Swarm mode has ended.';
+import SWARM_MODE_ENTER_REMINDER from './enter-reminder.md';
+import SWARM_MODE_EXIT_REMINDER from './exit-reminder.md';
 
 export class SwarmMode {
   protected active = false;
@@ -13,7 +12,7 @@ export class SwarmMode {
   run(input: readonly ContentPart[]): void {
     this.agent.records.logRecord({ type: 'swarm_mode.enter' });
     this.active = true;
-    this.agent.context.appendSystemReminder(SWARM_MODE_REMINDER, {
+    this.agent.context.appendSystemReminder(SWARM_MODE_ENTER_REMINDER, {
       kind: 'injection',
       variant: 'swarm_mode',
     });
@@ -21,8 +20,7 @@ export class SwarmMode {
     if (this.agent.records.restoring) {
       this.agent.turn.restorePrompt();
     } else {
-      const turnId = this.agent.turn.prompt(input);
-      if (turnId === null) this.exit();
+      this.agent.turn.prompt(input);
     }
   }
 
@@ -30,14 +28,16 @@ export class SwarmMode {
     if (!this.active) return;
     this.agent.records.logRecord({ type: 'swarm_mode.exit' });
     this.active = false;
-    if (this.agent.records.restoring) {
+    this.agent.emitStatusUpdated();
+    if (this.agent.context.popMatchedMessage((origin) => origin?.kind === 'injection' && origin.variant === 'swarm_mode')) {
       return;
     }
-    this.agent.context.appendSystemReminder(SWARM_MODE_EXIT_REMINDER, {
-      kind: 'injection',
-      variant: 'swarm_mode_exit',
-    });
-    this.agent.emitStatusUpdated();
+    if (!this.agent.records.restoring) {
+      this.agent.context.appendSystemReminder(SWARM_MODE_EXIT_REMINDER, {
+        kind: 'injection',
+        variant: 'swarm_mode_exit',
+      });
+    }
   }
 
   get isActive(): boolean {
