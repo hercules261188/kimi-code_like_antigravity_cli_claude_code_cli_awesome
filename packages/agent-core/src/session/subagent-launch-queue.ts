@@ -20,6 +20,7 @@ export type QueuedSubagentTask<T = unknown> = {
   readonly description: string;
   readonly runInBackground: boolean;
   readonly origin?: PromptOrigin;
+  readonly resumeAgentId?: string;
 };
 
 export type QueuedSubagentRunOptions = {

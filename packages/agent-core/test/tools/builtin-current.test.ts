@@ -13,7 +13,11 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Agent } from '../../src/agent';
 import type { SwarmMode } from '../../src/agent/swarm';
 import { FLAG_DEFINITIONS, FlagResolver } from '../../src/flags';
-import type { SessionSubagentHost } from '../../src/session/subagent-host';
+import type {
+  QueuedSubagentRunResult,
+  QueuedSubagentTask,
+  SessionSubagentHost,
+} from '../../src/session/subagent-host';
 import { SkillRegistry } from '../../src/skill';
 import { TaskListInputSchema } from '../../src/tools/background/task-list';
 import { TaskOutputInputSchema } from '../../src/tools/background/task-output';
@@ -305,7 +309,7 @@ describe('current builtin collaboration tools', () => {
       runQueued: vi.fn().mockResolvedValue([
         {
           task: {
-            data: { index: 1, item: 'src/a.ts', prompt: 'Review src/a.ts' },
+            data: { kind: 'spawn', index: 1, item: 'src/a.ts', prompt: 'Review src/a.ts' },
             profileName: 'explore',
             parentToolCallId: 'call_swarm',
             prompt: 'Review src/a.ts',
@@ -318,7 +322,7 @@ describe('current builtin collaboration tools', () => {
         },
         {
           task: {
-            data: { index: 2, item: 'src/b.ts', prompt: 'Review src/b.ts' },
+            data: { kind: 'spawn', index: 2, item: 'src/b.ts', prompt: 'Review src/b.ts' },
             profileName: 'explore',
             parentToolCallId: 'call_swarm',
             prompt: 'Review src/b.ts',
@@ -363,6 +367,9 @@ describe('current builtin collaboration tools', () => {
         },
       },
     });
+    expect(Object.keys(tool.parameters['properties'] as Record<string, unknown>).at(-1)).toBe(
+      'resume_agent_ids',
+    );
 
     const result = await executeTool(tool, context(input, 'call_swarm'));
 
@@ -371,20 +378,22 @@ describe('current builtin collaboration tools', () => {
     expect(host.runQueued).toHaveBeenCalledWith(
       [
         {
-          data: { index: 1, item: 'src/a.ts', prompt: 'Review src/a.ts' },
+          data: { kind: 'spawn', index: 1, item: 'src/a.ts', prompt: 'Review src/a.ts' },
           profileName: 'explore',
           parentToolCallId: 'call_swarm',
           prompt: 'Review src/a.ts',
           description: 'Review files #1 (explore)',
           runInBackground: false,
+          resumeAgentId: undefined,
         },
         {
-          data: { index: 2, item: 'src/b.ts', prompt: 'Review src/b.ts' },
+          data: { kind: 'spawn', index: 2, item: 'src/b.ts', prompt: 'Review src/b.ts' },
           profileName: 'explore',
           parentToolCallId: 'call_swarm',
           prompt: 'Review src/b.ts',
           description: 'Review files #2 (explore)',
           runInBackground: false,
+          resumeAgentId: undefined,
         },
       ],
       {
@@ -422,12 +431,125 @@ describe('current builtin collaboration tools', () => {
     expect(host.runQueued).not.toHaveBeenCalled();
   });
 
+  it('AgentSwarm resumes mapped agents before spawning item subagents', async () => {
+    const runQueued = vi.fn(
+      async <T>(
+        tasks: readonly QueuedSubagentTask<T>[],
+      ): Promise<Array<QueuedSubagentRunResult<T>>> => {
+        return tasks.map((task, index) => ({
+          task,
+          agentId: task.resumeAgentId ?? `agent-new-${String(index + 1)}`,
+          status: 'completed' as const,
+          result: `result ${String(index + 1)}`,
+        }));
+      },
+    );
+    const host = mockSubagentHost({
+      runQueued: runQueued as unknown as SessionSubagentHost['runQueued'],
+    });
+    const swarmMode = mockSwarmMode();
+    const tool = new AgentSwarmTool(host, swarmMode);
+    const input = {
+      description: 'Finish review',
+      subagent_type: 'explore',
+      prompt_template: 'Review {{item}}',
+      items: ['src/new.ts'],
+      resume_agent_ids: {
+        'agent-old-1': 'Continue previous review A',
+        'agent-old-2': 'Continue previous review B',
+      },
+    };
+
+    expect(AgentSwarmToolInputSchema.safeParse(input).success).toBe(true);
+    expect(
+      AgentSwarmToolInputSchema.safeParse({
+        description: 'Resume two agents',
+        resume_agent_ids: {
+          'agent-old-1': 'Continue previous review A',
+          'agent-old-2': 'Continue previous review B',
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      AgentSwarmToolInputSchema.safeParse({
+        description: 'Resume one agent',
+        resume_agent_ids: {
+          'agent-old-1': 'Continue previous review A',
+        },
+      }).success,
+    ).toBe(false);
+
+    const result = await executeTool(tool, context(input, 'call_swarm'));
+
+    expect(host.runQueued).toHaveBeenCalledTimes(1);
+    expect(host.runQueued).toHaveBeenCalledWith(
+      [
+        {
+          data: {
+            kind: 'resume',
+            index: 1,
+            agentId: 'agent-old-1',
+            prompt: 'Continue previous review A',
+          },
+          profileName: 'subagent',
+          parentToolCallId: 'call_swarm',
+          prompt: 'Continue previous review A',
+          description: 'Finish review #1 (resume)',
+          runInBackground: false,
+          resumeAgentId: 'agent-old-1',
+        },
+        {
+          data: {
+            kind: 'resume',
+            index: 2,
+            agentId: 'agent-old-2',
+            prompt: 'Continue previous review B',
+          },
+          profileName: 'subagent',
+          parentToolCallId: 'call_swarm',
+          prompt: 'Continue previous review B',
+          description: 'Finish review #2 (resume)',
+          runInBackground: false,
+          resumeAgentId: 'agent-old-2',
+        },
+        {
+          data: {
+            kind: 'spawn',
+            index: 3,
+            item: 'src/new.ts',
+            prompt: 'Review src/new.ts',
+          },
+          profileName: 'explore',
+          parentToolCallId: 'call_swarm',
+          prompt: 'Review src/new.ts',
+          description: 'Finish review #3 (explore)',
+          runInBackground: false,
+          resumeAgentId: undefined,
+        },
+      ],
+      {
+        signal,
+        timeoutMs: undefined,
+        totalTimeoutMs: undefined,
+      },
+    );
+    expect(result.output).toBe([
+      '<agent_swarm_result>',
+      '<summary>completed: 3</summary>',
+      '<subagent index="1" mode="resume" agent_id="agent-old-1" outcome="completed">result 1</subagent>',
+      '<subagent index="2" mode="resume" agent_id="agent-old-2" outcome="completed">result 2</subagent>',
+      '<subagent index="3" agent_id="agent-new-3" outcome="completed">result 3</subagent>',
+      '</agent_swarm_result>',
+    ].join('\n'));
+    expect(result.isError).toBeUndefined();
+  });
+
   it('AgentSwarm reports failed subagents inside the XML result without failing the tool', async () => {
     const host = mockSubagentHost({
       runQueued: vi.fn().mockResolvedValue([
         {
           task: {
-            data: { index: 1, item: 'src/a.ts', prompt: 'Review src/a.ts' },
+            data: { kind: 'spawn', index: 1, item: 'src/a.ts', prompt: 'Review src/a.ts' },
             profileName: 'coder',
             parentToolCallId: 'call_swarm',
             prompt: 'Review src/a.ts',
@@ -440,7 +562,7 @@ describe('current builtin collaboration tools', () => {
         },
         {
           task: {
-            data: { index: 2, item: 'src/b.ts', prompt: 'Review src/b.ts' },
+            data: { kind: 'spawn', index: 2, item: 'src/b.ts', prompt: 'Review src/b.ts' },
             profileName: 'coder',
             parentToolCallId: 'call_swarm',
             prompt: 'Review src/b.ts',

@@ -48,28 +48,69 @@ export const AgentSwarmToolInputSchema = z
       .refine((value) => value.includes(PROMPT_TEMPLATE_PLACEHOLDER), {
         message: `prompt_template must include the ${PROMPT_TEMPLATE_PLACEHOLDER} placeholder.`,
       })
+      .optional()
       .describe(
         `Prompt template for each subagent. The ${PROMPT_TEMPLATE_PLACEHOLDER} placeholder is replaced with each item value.`,
       ),
     items: z
       .array(z.string().trim().min(1))
-      .min(2)
-      .max(MAX_AGENT_SWARM_SUBAGENTS, {
-        message: `AgentSwarm supports at most ${String(MAX_AGENT_SWARM_SUBAGENTS)} subagents.`,
-      })
+      .max(MAX_AGENT_SWARM_SUBAGENTS)
+      .optional()
       .describe(
-        `Values used to fill ${PROMPT_TEMPLATE_PLACEHOLDER}. Each item launches one subagent.`,
+        `Values used to fill ${PROMPT_TEMPLATE_PLACEHOLDER}. Each item launches one new subagent.`,
+      ),
+    resume_agent_ids: z
+      .record(z.string().trim().min(1), z.string().trim().min(1))
+      .optional()
+      .describe(
+        'Map of existing subagent agent_id to the prompt used to resume that subagent. These resumed subagents are launched before new item-based subagents.',
       ),
   })
-  .strict();
+  .strict()
+  .superRefine((args, ctx) => {
+    const itemCount = args.items?.length ?? 0;
+    const resumeCount = Object.keys(args.resume_agent_ids ?? {}).length;
+    const totalCount = itemCount + resumeCount;
+    if (itemCount > 0 && args.prompt_template === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['prompt_template'],
+        message: 'prompt_template is required when items are provided.',
+      });
+    }
+    if (totalCount < 2) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['items'],
+        message: 'AgentSwarm requires at least 2 total subagents.',
+      });
+    }
+    if (totalCount > MAX_AGENT_SWARM_SUBAGENTS) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['items'],
+        message: `AgentSwarm supports at most ${String(MAX_AGENT_SWARM_SUBAGENTS)} subagents.`,
+      });
+    }
+  });
 
 export type AgentSwarmToolInput = z.infer<typeof AgentSwarmToolInputSchema>;
 
-interface AgentSwarmSpec {
+interface AgentSwarmSpawnSpec {
+  readonly kind: 'spawn';
   readonly index: number;
   readonly item: string;
   readonly prompt: string;
 }
+
+interface AgentSwarmResumeSpec {
+  readonly kind: 'resume';
+  readonly index: number;
+  readonly agentId: string;
+  readonly prompt: string;
+}
+
+type AgentSwarmSpec = AgentSwarmSpawnSpec | AgentSwarmResumeSpec;
 
 interface SwarmRunResult {
   readonly spec: AgentSwarmSpec;
@@ -129,15 +170,21 @@ export class AgentSwarmTool implements BuiltinTool<AgentSwarmToolInput> {
     signal: AbortSignal,
     toolCallId: string,
   ): Promise<string> {
-    const profileName = args.subagent_type ?? DEFAULT_SUBAGENT_TYPE;
+    const profileName = normalizeOptionalString(args.subagent_type) ?? DEFAULT_SUBAGENT_TYPE;
     const tasks = specs.map((spec): QueuedSubagentTask<AgentSwarmSpec> => {
+      const resumeAgentId = spec.kind === 'resume' ? spec.agentId : undefined;
       return {
         data: spec,
-        profileName,
+        profileName: spec.kind === 'resume' ? 'subagent' : profileName,
         parentToolCallId: toolCallId,
         prompt: spec.prompt,
-        description: childDescription(args.description, spec.index, profileName),
+        description: childDescription(
+          args.description,
+          spec.index,
+          spec.kind === 'resume' ? 'resume' : profileName,
+        ),
         runInBackground: false,
+        resumeAgentId,
       };
     });
     const results = await this.subagentHost.runQueued(tasks, {
@@ -149,31 +196,72 @@ export class AgentSwarmTool implements BuiltinTool<AgentSwarmToolInput> {
 }
 
 function createAgentSwarmSpecs(args: AgentSwarmToolInput): AgentSwarmSpec[] {
-  if (!args.prompt_template.includes(PROMPT_TEMPLATE_PLACEHOLDER)) {
-    throw new Error(`AgentSwarm prompt_template must include ${PROMPT_TEMPLATE_PLACEHOLDER}.`);
+  const resumeEntries = Object.entries(args.resume_agent_ids ?? {}).map(([agentId, prompt]) => {
+    return {
+      agentId: agentId.trim(),
+      prompt: prompt.trim(),
+    };
+  });
+  const items = (args.items ?? []).map((item) => item.trim());
+  const totalCount = resumeEntries.length + items.length;
+  if (totalCount < 2) {
+    throw new Error('AgentSwarm requires at least 2 total subagents.');
   }
-  if (args.items.length > MAX_AGENT_SWARM_SUBAGENTS) {
+  if (totalCount > MAX_AGENT_SWARM_SUBAGENTS) {
     throw new Error(
       `AgentSwarm supports at most ${String(MAX_AGENT_SWARM_SUBAGENTS)} subagents.`,
     );
   }
+  const invalidResume = resumeEntries.find(
+    (entry) => entry.agentId.length === 0 || entry.prompt.length === 0,
+  );
+  if (invalidResume !== undefined) {
+    throw new Error('AgentSwarm resume_agent_ids must map non-empty agent ids to non-empty prompts.');
+  }
+  const invalidItem = items.find((item) => item.length === 0);
+  if (invalidItem !== undefined) {
+    throw new Error('AgentSwarm items must be non-empty strings.');
+  }
+  const promptTemplate = normalizeOptionalString(args.prompt_template);
+  if (items.length > 0 && promptTemplate === undefined) {
+    throw new Error('AgentSwarm prompt_template is required when items are provided.');
+  }
+  if (promptTemplate !== undefined && !promptTemplate.includes(PROMPT_TEMPLATE_PLACEHOLDER)) {
+    throw new Error(`AgentSwarm prompt_template must include ${PROMPT_TEMPLATE_PLACEHOLDER}.`);
+  }
 
   const seenPrompts = new Map<string, number>();
-  return args.items.map((item, index) => {
-    const prompt = args.prompt_template.split(PROMPT_TEMPLATE_PLACEHOLDER).join(item);
-    const previousIndex = seenPrompts.get(prompt);
-    if (previousIndex !== undefined) {
-      throw new Error(
-        `Duplicate subagent prompts from items ${String(previousIndex)} and ${String(index + 1)}. AgentSwarm requires distinct subagents.`,
-      );
+  const specs: AgentSwarmSpec[] = [];
+  for (const entry of resumeEntries) {
+    specs.push({
+      kind: 'resume',
+      index: specs.length + 1,
+      agentId: entry.agentId,
+      prompt: entry.prompt,
+    });
+  }
+  if (items.length > 0) {
+    if (promptTemplate === undefined) {
+      throw new Error('AgentSwarm prompt_template is required when items are provided.');
     }
-    seenPrompts.set(prompt, index + 1);
-    return {
-      index: index + 1,
-      item,
-      prompt,
-    };
-  });
+    items.forEach((item, index) => {
+      const prompt = promptTemplate.split(PROMPT_TEMPLATE_PLACEHOLDER).join(item);
+      const previousIndex = seenPrompts.get(prompt);
+      if (previousIndex !== undefined) {
+        throw new Error(
+          `Duplicate subagent prompts from items ${String(previousIndex)} and ${String(index + 1)}. AgentSwarm requires distinct subagents.`,
+        );
+      }
+      seenPrompts.set(prompt, index + 1);
+      specs.push({
+        kind: 'spawn',
+        index: specs.length + 1,
+        item,
+        prompt,
+      });
+    });
+  }
+  return specs;
 }
 
 function childDescription(swarmDescription: string, index: number, profileName: string): string {
@@ -190,14 +278,21 @@ function renderSwarmResults(results: readonly SwarmRunResult[]): string {
 
   for (const result of results) {
     const agentId = result.agentId === undefined ? '' : ` agent_id="${result.agentId}"`;
+    const mode = result.spec.kind === 'resume' ? ' mode="resume"' : '';
     const body = result.status === 'completed' ? (result.result ?? '') : (result.error ?? 'unknown error');
     lines.push(
-      `<subagent index="${String(result.spec.index)}"${agentId} outcome="${result.status}">${body}</subagent>`,
+      `<subagent index="${String(result.spec.index)}"${mode}${agentId} outcome="${result.status}">${body}</subagent>`,
     );
   }
 
   lines.push('</agent_swarm_result>');
   return lines.join('\n');
+}
+
+function normalizeOptionalString(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 function renderSwarmSummary(completed: number, failed: number): string {

@@ -326,22 +326,28 @@ export class SessionSubagentHost {
     let handle: SubagentHandle | undefined;
     try {
       runSignal.throwIfAborted();
-      handle =
-        options.retryAgentId === undefined
-          ? await this.spawn({
-              ...task,
-              signal: runSignal,
-              onStarted: options.markReady,
-              onFirstOutput: options.markReady,
-              suppressRateLimitFailureEvent: true,
-            })
-          : await this.retry(options.retryAgentId, {
-              ...task,
-              signal: runSignal,
-              onStarted: options.markReady,
-              onFirstOutput: options.markReady,
-              suppressRateLimitFailureEvent: true,
-            });
+      const runOptions = {
+        parentToolCallId: task.parentToolCallId,
+        parentToolCallUuid: task.parentToolCallUuid,
+        prompt: task.prompt,
+        description: task.description,
+        runInBackground: task.runInBackground,
+        origin: task.origin,
+        signal: runSignal,
+        onStarted: options.markReady,
+        onFirstOutput: options.markReady,
+        suppressRateLimitFailureEvent: true,
+      };
+      if (options.retryAgentId !== undefined) {
+        handle = await this.retry(options.retryAgentId, runOptions);
+      } else if (task.resumeAgentId !== undefined) {
+        handle = await this.resume(task.resumeAgentId, runOptions);
+      } else {
+        handle = await this.spawn({
+          profileName: task.profileName,
+          ...runOptions,
+        });
+      }
       const completion = await handle.completion;
       return {
         task,

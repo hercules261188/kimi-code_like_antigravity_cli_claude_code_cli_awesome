@@ -1420,6 +1420,57 @@ describe('SessionSubagentHost', () => {
     );
   });
 
+  it('runQueued resumes tasks that carry an existing agent id', async () => {
+    const parent = testAgent();
+    parent.configure();
+
+    const child = testAgent({ type: 'sub' });
+    child.configure();
+    child.agent.useProfile(
+      profile({ name: 'coder', tools: [], systemPrompt: 'coder prompt' }),
+    );
+    child.agent.context.appendUserMessage([{ type: 'text', text: 'Earlier swarm context' }]);
+    const summary =
+      'Resumed the queued swarm subagent from its prior context, completed the missing work, and returned a detailed enough handoff for the parent to proceed without starting over. '.repeat(
+        2,
+      );
+    child.mockNextResponse({ type: 'text', text: summary });
+
+    const session = fakeSession(parent.agent, child.agent, {
+      'agent-0': {
+        homedir: '/tmp/kimi-session/agents/agent-0',
+        type: 'sub',
+        parentAgentId: 'main',
+      },
+    });
+    const host = new SessionSubagentHost(session, 'main');
+
+    await expect(
+      host.runQueued(
+        [
+          {
+            ...queuedTask(1),
+            prompt: 'Continue the previous swarm task',
+            resumeAgentId: 'agent-0',
+          },
+        ],
+        { signal },
+      ),
+    ).resolves.toMatchObject([
+      {
+        agentId: 'agent-0',
+        status: 'completed',
+        result: summary.trim(),
+      },
+    ]);
+
+    expect(session.createAgent).not.toHaveBeenCalled();
+    expect(userTextMessages(child.llmCalls[0]?.history ?? [])).toEqual([
+      'Earlier swarm context',
+      'Continue the previous swarm task',
+    ]);
+  });
+
   it('retries a rate-limited child turn without appending the original prompt again', async () => {
     const parent = testAgent();
     parent.configure();
