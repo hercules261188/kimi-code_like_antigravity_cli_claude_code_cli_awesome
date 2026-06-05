@@ -1,5 +1,5 @@
 /**
- * `/v1/sessions/{session_id}/messages` REST endpoint schemas (REST.md §3.4).
+ * `/api/v1/sessions/{session_id}/messages` REST endpoint schemas (REST.md §3.4).
  *
  * Covers the listMessagesQuery + getMessageResponse + listMessagesResponse
  * shapes. Entity-level Message round-tripping is in `message.test.ts`.

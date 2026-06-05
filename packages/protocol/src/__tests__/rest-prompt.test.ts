@@ -1,5 +1,5 @@
 /**
- * `/v1/sessions/{sid}/prompts` REST endpoint schemas (REST.md §3.5).
+ * `/api/v1/sessions/{sid}/prompts` REST endpoint schemas (REST.md §3.5).
  *
  * Covers PromptSubmission body + PromptSubmitResult + PromptAbortResponse.
  */

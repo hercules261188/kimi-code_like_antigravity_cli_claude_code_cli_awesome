@@ -1,5 +1,5 @@
 /**
- * `metaResponseSchema` (REST.md §3.1) — wire shape for `GET /v1/meta`.
+ * `metaResponseSchema` (REST.md §3.1) — wire shape for `GET /api/v1/meta`.
  *
  * Tests cover:
  *   1. Positive parse — well-formed payload round-trips through the schema

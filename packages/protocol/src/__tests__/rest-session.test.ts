@@ -1,5 +1,5 @@
 /**
- * `/v1/sessions` REST endpoint schemas (REST.md §3.3).
+ * `/api/v1/sessions` REST endpoint schemas (REST.md §3.3).
  *
  * Tests the endpoint-specific shapes: create / list-query / update / delete
  * response. Session entity round-tripping is in `session.test.ts`.

@@ -13,7 +13,7 @@ import {
   type UploadFileResponse,
 } from '../rest/file';
 
-describe('uploadFileResponseSchema (POST /v1/files)', () => {
+describe('uploadFileResponseSchema (POST /api/v1/files)', () => {
   it('round-trips a FileMeta payload', () => {
     const payload: UploadFileResponse = {
       id: '01JABCDEFGHJKMNPQRSTVWXYZ0',
@@ -26,7 +26,7 @@ describe('uploadFileResponseSchema (POST /v1/files)', () => {
   });
 });
 
-describe('getFileParamSchema (GET /v1/files/{file_id})', () => {
+describe('getFileParamSchema (GET /api/v1/files/{file_id})', () => {
   it('accepts a non-empty file_id', () => {
     expect(getFileParamSchema.parse({ file_id: 'f_abc' }).file_id).toBe('f_abc');
   });
@@ -36,7 +36,7 @@ describe('getFileParamSchema (GET /v1/files/{file_id})', () => {
   });
 });
 
-describe('deleteFileParamSchema + deleteFileResponseSchema (DELETE /v1/files/{file_id})', () => {
+describe('deleteFileParamSchema + deleteFileResponseSchema (DELETE /api/v1/files/{file_id})', () => {
   it('accepts a non-empty file_id', () => {
     expect(deleteFileParamSchema.parse({ file_id: 'f_abc' }).file_id).toBe(
       'f_abc',
