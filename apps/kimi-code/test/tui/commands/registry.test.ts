@@ -47,11 +47,11 @@ describe('built-in slash command registry', () => {
     expect(resolveSlashCommandAvailability(plan!, 'clear')).toBe('idle-only');
   });
 
-  it('keeps swarm toggles always available while swarm tasks are idle-only', () => {
+  it('keeps swarm mode changes and swarm tasks idle-only', () => {
     const swarm = findBuiltInSlashCommand('swarm');
     expect(swarm).toBeDefined();
-    expect(resolveSlashCommandAvailability(swarm!, 'on')).toBe('always');
-    expect(resolveSlashCommandAvailability(swarm!, 'off')).toBe('always');
+    expect(resolveSlashCommandAvailability(swarm!, 'on')).toBe('idle-only');
+    expect(resolveSlashCommandAvailability(swarm!, 'off')).toBe('idle-only');
     expect(resolveSlashCommandAvailability(swarm!, 'Ship feature X')).toBe('idle-only');
   });
 

@@ -89,6 +89,16 @@ describe('resolveSlashCommandInput', () => {
       commandName: 'experiments',
       reason: 'streaming',
     });
+    expect(resolve('/swarm on', { isStreaming: true })).toEqual({
+      kind: 'blocked',
+      commandName: 'swarm',
+      reason: 'streaming',
+    });
+    expect(resolve('/swarm off', { isStreaming: true })).toEqual({
+      kind: 'blocked',
+      commandName: 'swarm',
+      reason: 'streaming',
+    });
   });
 
   it('blocks model and session pickers while compacting', () => {
@@ -110,6 +120,16 @@ describe('resolveSlashCommandInput', () => {
     expect(resolve('/experiments', { isCompacting: true })).toEqual({
       kind: 'blocked',
       commandName: 'experiments',
+      reason: 'compacting',
+    });
+    expect(resolve('/swarm on', { isCompacting: true })).toEqual({
+      kind: 'blocked',
+      commandName: 'swarm',
+      reason: 'compacting',
+    });
+    expect(resolve('/swarm off', { isCompacting: true })).toEqual({
+      kind: 'blocked',
+      commandName: 'swarm',
       reason: 'compacting',
     });
   });

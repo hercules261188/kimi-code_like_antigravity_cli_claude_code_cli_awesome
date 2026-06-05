@@ -134,9 +134,17 @@ describe('handleSwarmCommand', () => {
 
     await handleSwarmCommand(host, 'Ship feature X');
 
+    expect(session.setSwarmMode).toHaveBeenCalledWith(true);
+    expect(host.renderSwarmModeMarker).toHaveBeenCalledWith(true);
     expect(host.mountEditorReplacement).toHaveBeenCalledOnce();
+    const markerOrder = (host.renderSwarmModeMarker as ReturnType<typeof vi.fn>).mock
+      .invocationCallOrder[0];
+    const promptOrder = (host.mountEditorReplacement as ReturnType<typeof vi.fn>).mock
+      .invocationCallOrder[0];
+    expect(markerOrder).toBeDefined();
+    expect(promptOrder).toBeDefined();
+    expect(markerOrder!).toBeLessThan(promptOrder!);
     expect(session.setPermission).not.toHaveBeenCalled();
-    expect(session.setSwarmMode).not.toHaveBeenCalled();
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
     const text = stripAnsi(mountedPicker(host).render(80).join('\n'));
     expect(text).toContain('Manual mode can block swarm work');
@@ -154,9 +162,11 @@ describe('handleSwarmCommand', () => {
     });
     expect(session.setPermission).toHaveBeenCalledWith('auto');
     expect(session.setSwarmMode).toHaveBeenCalledWith(true);
+    expect(session.setSwarmMode).toHaveBeenCalledTimes(1);
     expect(host.setAppState).toHaveBeenCalledWith({ permissionMode: 'auto' });
     expect(host.setAppState).toHaveBeenCalledWith({ swarmMode: true });
     expect(host.renderSwarmModeMarker).toHaveBeenCalledWith(true);
+    expect(host.renderSwarmModeMarker).toHaveBeenCalledTimes(1);
   });
 
   it('can start a Manual-mode swarm task without changing permission', async () => {
@@ -173,7 +183,9 @@ describe('handleSwarmCommand', () => {
     });
     expect(session.setPermission).not.toHaveBeenCalled();
     expect(session.setSwarmMode).toHaveBeenCalledWith(true);
+    expect(session.setSwarmMode).toHaveBeenCalledTimes(1);
     expect(host.renderSwarmModeMarker).toHaveBeenCalledWith(true);
+    expect(host.renderSwarmModeMarker).toHaveBeenCalledTimes(1);
   });
 
   it('can switch to YOLO when starting a Manual-mode swarm task', async () => {
@@ -189,9 +201,11 @@ describe('handleSwarmCommand', () => {
     });
     expect(session.setPermission).toHaveBeenCalledWith('yolo');
     expect(session.setSwarmMode).toHaveBeenCalledWith(true);
+    expect(session.setSwarmMode).toHaveBeenCalledTimes(1);
     expect(host.setAppState).toHaveBeenCalledWith({ permissionMode: 'yolo' });
     expect(host.setAppState).toHaveBeenCalledWith({ swarmMode: true });
     expect(host.renderSwarmModeMarker).toHaveBeenCalledWith(true);
+    expect(host.renderSwarmModeMarker).toHaveBeenCalledTimes(1);
   });
 
   it('returns the command to the input box when a Manual-mode swarm start is cancelled', async () => {
@@ -203,7 +217,8 @@ describe('handleSwarmCommand', () => {
     expect(host.restoreInputText).toHaveBeenCalledWith('/swarm Ship feature X');
     expect(host.showStatus).toHaveBeenCalledWith('Swarm task not started.');
     expect(session.setPermission).not.toHaveBeenCalled();
-    expect(session.setSwarmMode).not.toHaveBeenCalled();
+    expect(session.setSwarmMode).toHaveBeenCalledWith(true);
+    expect(host.renderSwarmModeMarker).toHaveBeenCalledWith(true);
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });
 
@@ -219,7 +234,22 @@ describe('handleSwarmCommand', () => {
         expect.stringContaining('Failed to set permission mode'),
       );
     });
-    expect(session.setSwarmMode).not.toHaveBeenCalled();
+    expect(session.setSwarmMode).toHaveBeenCalledWith(true);
+    expect(host.renderSwarmModeMarker).toHaveBeenCalledWith(true);
+    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
+  });
+
+  it('does not show the Manual-mode prompt when enabling swarm mode fails', async () => {
+    const { host, session } = makeHost({ permissionMode: 'manual' });
+    session.setSwarmMode.mockRejectedValueOnce(new Error('denied'));
+
+    await handleSwarmCommand(host, 'Ship feature X');
+
+    expect(host.showError).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to enable swarm mode'),
+    );
+    expect(host.renderSwarmModeMarker).not.toHaveBeenCalled();
+    expect(host.mountEditorReplacement).not.toHaveBeenCalled();
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });
 

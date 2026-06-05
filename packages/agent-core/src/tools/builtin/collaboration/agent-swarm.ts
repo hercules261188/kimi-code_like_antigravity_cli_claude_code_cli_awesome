@@ -15,6 +15,7 @@ import AGENT_SWARM_DESCRIPTION from './agent-swarm.md';
 
 const DEFAULT_SUBAGENT_TYPE = 'coder';
 const PROMPT_TEMPLATE_PLACEHOLDER = '{{item}}';
+const MAX_AGENT_SWARM_SUBAGENTS = 128;
 
 export const AgentSwarmToolInputSchema = z
   .object({
@@ -53,6 +54,9 @@ export const AgentSwarmToolInputSchema = z
     items: z
       .array(z.string().trim().min(1))
       .min(2)
+      .max(MAX_AGENT_SWARM_SUBAGENTS, {
+        message: `AgentSwarm supports at most ${String(MAX_AGENT_SWARM_SUBAGENTS)} subagents.`,
+      })
       .describe(
         `Values used to fill ${PROMPT_TEMPLATE_PLACEHOLDER}. Each item launches one subagent.`,
       ),
@@ -147,6 +151,11 @@ export class AgentSwarmTool implements BuiltinTool<AgentSwarmToolInput> {
 function createAgentSwarmSpecs(args: AgentSwarmToolInput): AgentSwarmSpec[] {
   if (!args.prompt_template.includes(PROMPT_TEMPLATE_PLACEHOLDER)) {
     throw new Error(`AgentSwarm prompt_template must include ${PROMPT_TEMPLATE_PLACEHOLDER}.`);
+  }
+  if (args.items.length > MAX_AGENT_SWARM_SUBAGENTS) {
+    throw new Error(
+      `AgentSwarm supports at most ${String(MAX_AGENT_SWARM_SUBAGENTS)} subagents.`,
+    );
   }
 
   const seenPrompts = new Map<string, number>();

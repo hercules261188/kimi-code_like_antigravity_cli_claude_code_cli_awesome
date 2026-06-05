@@ -32,6 +32,7 @@ export async function handleSwarmCommand(host: SlashCommandHost, args: string): 
   }
 
   if (host.state.appState.permissionMode === 'manual') {
+    if (!(await activateSwarmForTask(host))) return;
     showSwarmStartPermissionPrompt(host, prompt);
     return;
   }
@@ -69,7 +70,7 @@ async function startSwarmWithPermission(
   if (choice === 'auto' || choice === 'yolo') {
     if (!(await setPermissionForSwarm(host, choice))) return;
   }
-  await startSwarmTask(host, prompt);
+  host.sendNormalUserInput(prompt);
 }
 
 async function setPermissionForSwarm(host: SlashCommandHost, mode: PermissionMode): Promise<boolean> {
@@ -84,9 +85,14 @@ async function setPermissionForSwarm(host: SlashCommandHost, mode: PermissionMod
 }
 
 async function startSwarmTask(host: SlashCommandHost, prompt: string): Promise<void> {
-  if (!host.state.appState.swarmMode && !(await setSwarmMode(host, true))) return;
-  host.renderSwarmModeMarker(true);
+  if (!(await activateSwarmForTask(host))) return;
   host.sendNormalUserInput(prompt);
+}
+
+async function activateSwarmForTask(host: SlashCommandHost): Promise<boolean> {
+  if (!host.state.appState.swarmMode && !(await setSwarmMode(host, true))) return false;
+  host.renderSwarmModeMarker(true);
+  return true;
 }
 
 async function applySwarmMode(host: SlashCommandHost, enabled: boolean): Promise<void> {

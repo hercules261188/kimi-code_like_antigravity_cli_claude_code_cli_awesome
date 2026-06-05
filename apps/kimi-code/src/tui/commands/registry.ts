@@ -72,8 +72,7 @@ export const BUILTIN_SLASH_COMMANDS = [
     aliases: [],
     description: 'Toggle swarm mode or run one task in swarm mode',
     priority: 100,
-    availability: (args) =>
-      ['on', 'off'].includes(args.trim().toLowerCase()) ? 'always' : 'idle-only',
+    availability: 'idle-only',
   },
   {
     name: 'model',
