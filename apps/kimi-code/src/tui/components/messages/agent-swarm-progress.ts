@@ -509,7 +509,7 @@ export class AgentSwarmProgressComponent implements Component {
   private renderHeader(width: number, _summary: AgentSwarmSummary | undefined): string {
     if (width <= 3) return chalk.hex(this.colors.primary)('─'.repeat(width));
 
-    const title = chalk.hex(this.colors.primary).bold('Agent swarm');
+    const title = chalk.hex(this.colors.primary).bold('Agent Swarm');
     const description =
       this.description.length > 0
         ? chalk.hex(this.colors.primary)(' ─ ') + chalk.hex(this.colors.text)(this.description)

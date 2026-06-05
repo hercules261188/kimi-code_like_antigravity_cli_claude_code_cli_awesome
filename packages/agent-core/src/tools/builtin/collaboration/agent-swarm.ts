@@ -303,7 +303,7 @@ function renderSwarmResults(results: readonly SwarmRunResult[]): string {
     const state = result.state === undefined ? '' : ` state="${result.state}"`;
     const body = result.status === 'completed' ? (result.result ?? '') : (result.error ?? 'unknown error');
     lines.push(
-      `<subagent index="${String(result.spec.index)}"${mode}${agentId}${item}${state} outcome="${result.status}">${body}</subagent>`,
+      `<subagent${mode}${agentId}${item}${state} outcome="${result.status}">${body}</subagent>`,
     );
   }
 

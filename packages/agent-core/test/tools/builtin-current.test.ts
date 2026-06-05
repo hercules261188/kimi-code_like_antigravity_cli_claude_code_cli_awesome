@@ -412,8 +412,8 @@ describe('current builtin collaboration tools', () => {
     expect(result.output).toBe([
       '<agent_swarm_result>',
       '<summary>completed: 2</summary>',
-      '<subagent index="1" agent_id="agent-explore-1" item="src/a.ts" outcome="completed">explore result a</subagent>',
-      '<subagent index="2" agent_id="agent-explore-2" item="src/b.ts" outcome="completed">explore result b</subagent>',
+      '<subagent agent_id="agent-explore-1" item="src/a.ts" outcome="completed">explore result a</subagent>',
+      '<subagent agent_id="agent-explore-2" item="src/b.ts" outcome="completed">explore result b</subagent>',
       '</agent_swarm_result>',
     ].join('\n'));
     expect(result.isError).toBeUndefined();
@@ -553,9 +553,9 @@ describe('current builtin collaboration tools', () => {
     expect(result.output).toBe([
       '<agent_swarm_result>',
       '<summary>completed: 3</summary>',
-      '<subagent index="1" mode="resume" agent_id="agent-old-1" item="src/old-a.ts" outcome="completed">result 1</subagent>',
-      '<subagent index="2" mode="resume" agent_id="agent-old-2" item="src/old-b.ts" outcome="completed">result 2</subagent>',
-      '<subagent index="3" agent_id="agent-new-3" item="src/new.ts" outcome="completed">result 3</subagent>',
+      '<subagent mode="resume" agent_id="agent-old-1" item="src/old-a.ts" outcome="completed">result 1</subagent>',
+      '<subagent mode="resume" agent_id="agent-old-2" item="src/old-b.ts" outcome="completed">result 2</subagent>',
+      '<subagent agent_id="agent-new-3" item="src/new.ts" outcome="completed">result 3</subagent>',
       '</agent_swarm_result>',
     ].join('\n'));
     expect(result.isError).toBeUndefined();
@@ -611,8 +611,8 @@ describe('current builtin collaboration tools', () => {
       '<agent_swarm_result>',
       '<summary>completed: 1, failed: 1</summary>',
       '<resume_hint>Call AgentSwarm with resume_agent_ids using the agent_id values in this result to continue unfinished work.</resume_hint>',
-      '<subagent index="1" agent_id="agent-coder-1" item="src/a.ts" outcome="completed">imports are stable</subagent>',
-      '<subagent index="2" agent_id="agent-coder-2" item="src/b.ts" outcome="failed">Agent timed out after 30s.</subagent>',
+      '<subagent agent_id="agent-coder-1" item="src/a.ts" outcome="completed">imports are stable</subagent>',
+      '<subagent agent_id="agent-coder-2" item="src/b.ts" outcome="failed">Agent timed out after 30s.</subagent>',
       '</agent_swarm_result>',
     ].join('\n'));
     expect(swarmMode.enter).toHaveBeenCalledWith('implicit');
@@ -666,8 +666,8 @@ describe('current builtin collaboration tools', () => {
     expect(result.output).toBe([
       '<agent_swarm_result>',
       '<summary>failed: 2</summary>',
-      '<subagent index="1" item="src/a.ts" outcome="failed">Agent did not start.</subagent>',
-      '<subagent index="2" item="src/b.ts" outcome="failed">Agent also did not start.</subagent>',
+      '<subagent item="src/a.ts" outcome="failed">Agent did not start.</subagent>',
+      '<subagent item="src/b.ts" outcome="failed">Agent also did not start.</subagent>',
       '</agent_swarm_result>',
     ].join('\n'));
     expect(result.isError).toBeUndefined();
@@ -737,9 +737,9 @@ describe('current builtin collaboration tools', () => {
       '<agent_swarm_result>',
       '<summary>completed: 1, aborted: 2</summary>',
       '<resume_hint>Call AgentSwarm with resume_agent_ids using the agent_id values in this result to continue unfinished work.</resume_hint>',
-      '<subagent index="1" agent_id="agent-coder-1" item="src/a.ts" outcome="completed">imports are stable</subagent>',
-      '<subagent index="2" agent_id="agent-coder-2" item="src/b.ts" state="started" outcome="aborted">The user manually interrupted this subagent batch before this subagent finished.</subagent>',
-      '<subagent index="3" item="src/c.ts" state="not_started" outcome="aborted">The user manually interrupted this subagent batch before this subagent was started.</subagent>',
+      '<subagent agent_id="agent-coder-1" item="src/a.ts" outcome="completed">imports are stable</subagent>',
+      '<subagent agent_id="agent-coder-2" item="src/b.ts" state="started" outcome="aborted">The user manually interrupted this subagent batch before this subagent finished.</subagent>',
+      '<subagent item="src/c.ts" state="not_started" outcome="aborted">The user manually interrupted this subagent batch before this subagent was started.</subagent>',
       '</agent_swarm_result>',
     ].join('\n'));
     expect(result.isError).toBeUndefined();

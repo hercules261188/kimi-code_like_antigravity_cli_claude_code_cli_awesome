@@ -936,7 +936,7 @@ command = "vim"
 
     let transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('launch swarm');
-    expect(transcript).toContain('Agent swarm');
+    expect(transcript).toContain('Agent Swarm');
     expect(transcript).toContain('Review changed files');
 
     driver.state.appState.streamingPhase = 'idle';
@@ -948,7 +948,7 @@ command = "vim"
 
     transcript = stripSgr(renderTranscript(driver));
     expect(transcript).not.toContain('launch swarm');
-    expect(transcript).not.toContain('Agent swarm');
+    expect(transcript).not.toContain('Agent Swarm');
     expect(transcript).not.toContain('Review changed files');
   });
 
@@ -2535,7 +2535,7 @@ command = "vim"
     expect(driver.state.ui.requestRender).toHaveBeenCalled();
 
     transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toContain('Agent swarm');
+    expect(transcript).toContain('Agent Swarm');
     expect(transcript).toContain('Review changed files');
     expect(transcript).toContain('001 [');
     expect(transcript).toContain('Reviewing src/a.ts');
@@ -2699,7 +2699,7 @@ command = "vim"
     );
 
     let transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toContain('Agent swarm');
+    expect(transcript).toContain('Agent Swarm');
     expect(transcript).toContain('Orchestrating...');
     expect(transcript).not.toContain('01');
 
@@ -2716,7 +2716,7 @@ command = "vim"
     );
 
     transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toContain('Agent swarm');
+    expect(transcript).toContain('Agent Swarm');
     expect(transcript).toContain('Review changed files');
     expect(transcript).toContain('001 src/a.ts');
     expect(transcript).toContain('002 src/b');

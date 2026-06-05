@@ -166,7 +166,7 @@ describe('AgentSwarmProgressComponent', () => {
 
     const output = strip(component.render(100).join('\n'));
 
-    expect(output).toContain('Agent swarm');
+    expect(output).toContain('Agent Swarm');
     expect(output).toContain('Review changed files');
     expect(output).toContain('Orchestrating...');
     expect(output).not.toContain('01');
@@ -200,7 +200,7 @@ describe('AgentSwarmProgressComponent', () => {
     const gridLine = rendered.find((line) => line.includes('001 ['));
 
     expect(rendered.every((line) => visibleWidth(line) <= 79)).toBe(true);
-    expect(rendered.some((line) => line.includes('Agent swarm'))).toBe(true);
+    expect(rendered.some((line) => line.includes('Agent Swarm'))).toBe(true);
     expect(statusLine).toBeDefined();
     expect(statusLine?.match(/ *$/)?.[0].length).toBe(0);
     expect(gridLine).toBeDefined();
@@ -285,7 +285,7 @@ describe('AgentSwarmProgressComponent', () => {
     const lines = strip(component.render(100).join('\n')).split('\n');
 
     expect(lines[0]).toBe(' ');
-    expect(lines[1]).toContain('Agent swarm');
+    expect(lines[1]).toContain('Agent Swarm');
   });
 
   it('fits three queued columns with the narrower gap and minimum cell width', () => {
@@ -900,7 +900,7 @@ describe('AgentSwarmProgressComponent', () => {
     });
     const output = strip(component.render(100).join('\n'));
 
-    expect(output).toContain('Agent swarm');
+    expect(output).toContain('Agent Swarm');
     expect(output).toContain('Review changed files');
     expect(output).toContain('001 src/a.ts');
     expect(output).toContain('002 src/b.ts');
