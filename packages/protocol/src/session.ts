@@ -1,0 +1,180 @@
+/**
+ * Session entity schemas (SCHEMAS.md §2 / §2.1 / §2.2).
+ *
+ * Wire shape: snake_case fields, ISO 8601 `Z`-suffix timestamps via
+ * `isoDateTimeSchema`. Daemon emits Session via `okEnvelope(session, req.id)`;
+ * clients parse via `sessionSchema`.
+ *
+ * Agent-core's `SessionSummary` / `SessionMeta` are camelCase + number/string
+ * timestamps; the cross-package adapter lives in
+ * `packages/services/src/impls/session-service-impl.ts` (`toProtocolSession`).
+ *
+ * Coverage gaps (TBD pending agent-core surface work — see W6 STATUS Decisions):
+ *   - `status`: agent-core does not expose a session "status" enum yet; the
+ *     adapter returns 'idle' for now. Will be promoted to a real signal once
+ *     the bridge surfaces `event.session.status`.
+ *   - `usage`: cumulative `SessionUsage` is not exposed by CoreAPI today;
+ *     daemon returns the zero usage struct.
+ *   - `permission_rules`: PermissionRule schema is defined here (and the
+ *     daemon accepts updates to it), but the adapter currently echoes back
+ *     an empty array — there is no CoreAPI surface to enumerate them.
+ *   - `message_count` / `last_seq`: not yet surfaced — defaulted to 0.
+ *   - `agent_config`: surfaced from `CreateSessionPayload` echoes during
+ *     `create`, but `get/list` re-derive from the limited CoreAPI surface;
+ *     defaults applied as documented in the adapter.
+ *
+ * These are NOT silent omissions: the shape stays on-wire stable; the daemon
+ * fills with empty/zero values flagged in W6 STATUS. W7+ chains backfill as
+ * agent-core surfaces grow.
+ */
+
+import { z } from 'zod';
+
+import { isoDateTimeSchema } from './time';
+
+// --- 2.x SessionStatus ------------------------------------------------------
+
+export const sessionStatusSchema = z.enum([
+  'idle',
+  'running',
+  'awaiting_approval',
+  'awaiting_question',
+  'aborted',
+]);
+
+export type SessionStatus = z.infer<typeof sessionStatusSchema>;
+
+// --- 2.1 SessionUsage -------------------------------------------------------
+
+export const sessionUsageSchema = z.object({
+  input_tokens: z.number().int().nonnegative(),
+  output_tokens: z.number().int().nonnegative(),
+  cache_read_tokens: z.number().int().nonnegative(),
+  cache_creation_tokens: z.number().int().nonnegative(),
+  total_cost_usd: z.number().nonnegative(),
+  context_tokens: z.number().int().nonnegative(),
+  context_limit: z.number().int().nonnegative(),
+  turn_count: z.number().int().nonnegative(),
+});
+
+export type SessionUsage = z.infer<typeof sessionUsageSchema>;
+
+/** Zero-initialized usage — used as default when daemon can't source counts. */
+export function emptySessionUsage(): SessionUsage {
+  return {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_read_tokens: 0,
+    cache_creation_tokens: 0,
+    total_cost_usd: 0,
+    context_tokens: 0,
+    context_limit: 0,
+    turn_count: 0,
+  };
+}
+
+// --- 2.2 PermissionRule -----------------------------------------------------
+
+export const permissionRuleMatcherSchema = z.object({
+  kind: z.enum(['command_prefix', 'path_glob', 'exact_input', 'always']),
+  value: z.string().optional(),
+});
+
+export const permissionRuleSchema = z.object({
+  id: z.string().min(1),
+  tool_name: z.string().min(1),
+  matcher: permissionRuleMatcherSchema.optional(),
+  decision: z.literal('approved'),
+  created_at: isoDateTimeSchema,
+  created_by: z.enum(['user', 'agent']),
+});
+
+export type PermissionRule = z.infer<typeof permissionRuleSchema>;
+
+// --- 2 Session.agent_config -------------------------------------------------
+
+export const sessionAgentConfigSchema = z.object({
+  // SCHEMAS.md §2 documents `model` as required (e.g. "moonshot-v1-128k").
+  // W6.2 relaxes to allow empty string at parse time: agent-core's
+  // `listSessions` does NOT surface the per-session model, so the daemon
+  // returns "" until the gap closes in a later chain (W7+ may wire
+  // `getModel` via `bridge.rpc.getModel({sessionId, agentId: 'main'})`).
+  // The wire shape stays the same — clients should treat "" as "unknown".
+  model: z.string(),
+  system_prompt: z.string().optional(),
+  tools: z.array(z.string()).optional(),
+  mcp_servers: z.array(z.string()).optional(),
+});
+
+export type SessionAgentConfig = z.infer<typeof sessionAgentConfigSchema>;
+
+export const sessionAgentConfigPartialSchema = sessionAgentConfigSchema.partial();
+export type SessionAgentConfigPartial = z.infer<typeof sessionAgentConfigPartialSchema>;
+
+// --- 2 Session.metadata -----------------------------------------------------
+
+/**
+ * `Session.metadata` — `cwd` is canonical (the session's working directory);
+ * other keys are arbitrary JSON extensions.
+ */
+export const sessionMetadataSchema = z
+  .object({
+    cwd: z.string().min(1),
+  })
+  .catchall(z.unknown());
+
+export type SessionMetadata = z.infer<typeof sessionMetadataSchema>;
+
+// --- 2 Session --------------------------------------------------------------
+
+export const sessionSchema = z.object({
+  id: z.string().min(1),
+  title: z.string(),
+  created_at: isoDateTimeSchema,
+  updated_at: isoDateTimeSchema,
+  status: sessionStatusSchema,
+  current_prompt_id: z.string().min(1).optional(),
+  metadata: sessionMetadataSchema,
+  agent_config: sessionAgentConfigSchema,
+  usage: sessionUsageSchema,
+  permission_rules: z.array(permissionRuleSchema),
+  message_count: z.number().int().nonnegative(),
+  last_seq: z.number().int().nonnegative(),
+});
+
+export type Session = z.infer<typeof sessionSchema>;
+
+// --- SessionCreate / SessionUpdate (SCHEMAS §2 subsets) ---------------------
+
+/**
+ * `POST /v1/sessions` request body (SCHEMAS.md §2 `SessionCreate`).
+ *
+ * `metadata.cwd` is the canonical session working dir. Inputs without
+ * `metadata.cwd` are rejected by the daemon — agent-core `createSession`
+ * REQUIRES `workDir` (see `core-impl.ts:requiredWorkDir`).
+ *
+ * Wire validation: send `metadata: { cwd: "/tmp/..." }`. Other metadata keys
+ * pass through.
+ */
+export const sessionCreateSchema = z.object({
+  title: z.string().min(1).optional(),
+  metadata: sessionMetadataSchema,
+  agent_config: sessionAgentConfigPartialSchema.optional(),
+});
+
+export type SessionCreate = z.infer<typeof sessionCreateSchema>;
+
+/**
+ * `PATCH /v1/sessions/{session_id}` request body (SCHEMAS.md §2 `SessionUpdate`).
+ *
+ * Per SCHEMAS, `permission_rules` is a full replacement (empty array =
+ * clear all session-runtime always-approve rules).
+ */
+export const sessionUpdateSchema = z.object({
+  title: z.string().min(1).optional(),
+  metadata: sessionMetadataSchema.partial().optional(),
+  agent_config: sessionAgentConfigPartialSchema.optional(),
+  permission_rules: z.array(permissionRuleSchema).optional(),
+});
+
+export type SessionUpdate = z.infer<typeof sessionUpdateSchema>;

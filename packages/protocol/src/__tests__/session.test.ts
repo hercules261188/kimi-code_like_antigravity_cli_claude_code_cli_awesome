@@ -1,0 +1,157 @@
+/**
+ * Session entity schemas (SCHEMAS.md §2 / §2.1 / §2.2).
+ *
+ * Tests cover positive parse + a handful of strict-enough negative cases
+ * (missing required fields, wrong types, malformed timestamps).
+ */
+
+import { describe, expect, it } from 'vitest';
+
+import {
+  emptySessionUsage,
+  permissionRuleSchema,
+  sessionCreateSchema,
+  sessionSchema,
+  sessionStatusSchema,
+  sessionUpdateSchema,
+  sessionUsageSchema,
+  type Session,
+} from '../session';
+
+describe('sessionStatusSchema', () => {
+  it.each(['idle', 'running', 'awaiting_approval', 'awaiting_question', 'aborted'] as const)(
+    'accepts %s',
+    (status) => {
+      expect(sessionStatusSchema.parse(status)).toBe(status);
+    },
+  );
+
+  it('rejects unknown status', () => {
+    expect(sessionStatusSchema.safeParse('chilling').success).toBe(false);
+  });
+});
+
+describe('sessionUsageSchema + emptySessionUsage', () => {
+  it('emptySessionUsage is parseable as zero usage', () => {
+    const parsed = sessionUsageSchema.parse(emptySessionUsage());
+    expect(parsed.input_tokens).toBe(0);
+    expect(parsed.context_limit).toBe(0);
+    expect(parsed.total_cost_usd).toBe(0);
+  });
+
+  it('rejects negative token counts', () => {
+    const bad = { ...emptySessionUsage(), input_tokens: -1 };
+    expect(sessionUsageSchema.safeParse(bad).success).toBe(false);
+  });
+});
+
+describe('permissionRuleSchema', () => {
+  const sample = {
+    id: 'rule_01',
+    tool_name: 'Bash',
+    matcher: { kind: 'always' as const },
+    decision: 'approved' as const,
+    created_at: '2026-06-04T10:30:00.000Z',
+    created_by: 'user' as const,
+  };
+
+  it('parses an always-approve rule', () => {
+    expect(permissionRuleSchema.parse(sample).tool_name).toBe('Bash');
+  });
+
+  it('rejects decision != approved (first-version invariant)', () => {
+    const bad = { ...sample, decision: 'rejected' };
+    expect(permissionRuleSchema.safeParse(bad).success).toBe(false);
+  });
+});
+
+describe('sessionSchema', () => {
+  const fullSession: Session = {
+    id: '01HXYZABCDEFGHJKMNPQRSTVWX',
+    title: 'Test session',
+    created_at: '2026-06-04T10:30:00.000Z',
+    updated_at: '2026-06-04T10:35:00.000Z',
+    status: 'idle',
+    metadata: { cwd: '/tmp/test' },
+    agent_config: { model: 'moonshot-v1-128k' },
+    usage: emptySessionUsage(),
+    permission_rules: [],
+    message_count: 0,
+    last_seq: 0,
+  };
+
+  it('round-trips a full Session', () => {
+    expect(sessionSchema.parse(fullSession)).toEqual(fullSession);
+  });
+
+  it('accepts arbitrary metadata extensions via catchall', () => {
+    const withExtras = {
+      ...fullSession,
+      metadata: { cwd: '/tmp/test', custom_flag: 'on', nested: { a: 1 } },
+    };
+    expect(sessionSchema.parse(withExtras).metadata['cwd']).toBe('/tmp/test');
+  });
+
+  it('rejects when metadata.cwd is missing', () => {
+    const bad = { ...fullSession, metadata: {} };
+    expect(sessionSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('rejects malformed created_at (no timezone)', () => {
+    const bad = { ...fullSession, created_at: '2026-06-04T10:30:00' };
+    expect(sessionSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('normalizes timestamp offsets to UTC Z', () => {
+    const offsetForm = { ...fullSession, created_at: '2026-06-04T18:30:00+08:00' };
+    const parsed = sessionSchema.parse(offsetForm);
+    expect(parsed.created_at).toBe('2026-06-04T10:30:00.000Z');
+  });
+});
+
+describe('sessionCreateSchema', () => {
+  it('parses a minimal create with metadata.cwd only', () => {
+    expect(
+      sessionCreateSchema.parse({
+        metadata: { cwd: '/tmp/test' },
+      }),
+    ).toEqual({ metadata: { cwd: '/tmp/test' } });
+  });
+
+  it('parses a full create with title + agent_config', () => {
+    const parsed = sessionCreateSchema.parse({
+      title: 'My session',
+      metadata: { cwd: '/tmp/test' },
+      agent_config: { model: 'moonshot-v1-128k' },
+    });
+    expect(parsed.title).toBe('My session');
+    expect(parsed.agent_config?.model).toBe('moonshot-v1-128k');
+  });
+
+  it('rejects missing metadata.cwd (agent-core createSession requires workDir)', () => {
+    expect(sessionCreateSchema.safeParse({ metadata: {} }).success).toBe(false);
+    expect(sessionCreateSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe('sessionUpdateSchema', () => {
+  it('parses a title-only update', () => {
+    expect(sessionUpdateSchema.parse({ title: 'Renamed' })).toEqual({ title: 'Renamed' });
+  });
+
+  it('parses a permission_rules full-replacement (including empty array = clear)', () => {
+    expect(sessionUpdateSchema.parse({ permission_rules: [] })).toEqual({
+      permission_rules: [],
+    });
+  });
+
+  it('parses a partial agent_config patch', () => {
+    expect(
+      sessionUpdateSchema.parse({ agent_config: { model: 'moonshot-v1-256k' } }),
+    ).toEqual({ agent_config: { model: 'moonshot-v1-256k' } });
+  });
+
+  it('parses an empty update (no-op)', () => {
+    expect(sessionUpdateSchema.parse({})).toEqual({});
+  });
+});
