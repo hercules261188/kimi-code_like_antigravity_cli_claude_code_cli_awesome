@@ -9,6 +9,7 @@ import type { ContextMessage, PromptOrigin } from '../context';
 import type { PermissionApprovalResultRecord, PermissionMode } from '../permission';
 import type { UserToolRegistration } from '../tool';
 import type { UsageRecordScope } from '../usage';
+import type { SwarmModeTrigger } from '../swarm';
 
 export interface AgentRecordEvents {
   metadata: {
@@ -48,7 +49,7 @@ export interface AgentRecordEvents {
   };
 
   'swarm_mode.enter': {
-    trigger: 'explicit' | 'implicit';
+    trigger: SwarmModeTrigger;
   };
   'swarm_mode.exit': {};
 

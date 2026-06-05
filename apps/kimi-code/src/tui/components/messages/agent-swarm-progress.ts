@@ -29,6 +29,7 @@ const ACTIVITY_SPINNER_PLACEHOLDER = '  ';
 const AGENT_SWARM_LEFT_INDENT = ' ';
 const AGENT_SWARM_RIGHT_GAP = 1;
 const AGENT_SWARM_GRID_RIGHT_GAP = 1;
+const AGENT_SWARM_NON_GRID_LINES = 6;
 const ORCHESTRATING_LABEL = 'Orchestrating...';
 const PROMPTING_LABEL = 'Prompting...';
 const WORKING_LABEL = 'Working...';
@@ -86,10 +87,25 @@ interface AgentSwarmSummary {
   readonly cancelled: number;
 }
 
+export interface AgentSwarmGridLayoutInput {
+  readonly width: number;
+  readonly height: number;
+  readonly count: number;
+}
+
+export interface AgentSwarmGridLayout {
+  readonly renderText: boolean;
+  readonly barCells: number;
+  readonly columns: number;
+  readonly rows: number;
+  readonly cellWidth: number;
+}
+
 export interface AgentSwarmProgressOptions {
   readonly description: string;
   readonly colors: ColorPalette;
   readonly requestRender?: () => void;
+  readonly availableGridHeight?: () => number | undefined;
 }
 
 const PHASE_LABELS: Record<AgentSwarmPhase, string> = {
@@ -108,6 +124,7 @@ export class AgentSwarmProgressComponent implements Component {
   private description: string;
   private readonly colors: ColorPalette;
   private readonly requestRender: (() => void) | undefined;
+  private readonly availableGridHeight: (() => number | undefined) | undefined;
   private inputComplete = false;
   private failed = false;
   private aborted = false;
@@ -121,6 +138,7 @@ export class AgentSwarmProgressComponent implements Component {
     this.description = options.description;
     this.colors = options.colors;
     this.requestRender = options.requestRender;
+    this.availableGridHeight = options.availableGridHeight;
     this.members = [];
   }
 
@@ -446,6 +464,7 @@ export class AgentSwarmProgressComponent implements Component {
       '',
       ...this.renderGrid(
         Math.max(1, innerWidth - AGENT_SWARM_GRID_RIGHT_GAP),
+        this.availableGridHeight?.(),
         snapshots,
         nowMs,
       ),
@@ -557,16 +576,17 @@ export class AgentSwarmProgressComponent implements Component {
 
   private renderGrid(
     width: number,
+    height: number | undefined,
     snapshots: readonly AgentSwarmSnapshot[],
     nowMs: number,
   ): string[] {
-    const columns = columnsForWidth(width, this.members.length);
-    const gapWidth = visibleWidth(CELL_GAP);
-    const cellWidth = Math.max(
-      1,
-      Math.floor((width - gapWidth * Math.max(0, columns - 1)) / columns),
-    );
-    const rows = Math.ceil(this.members.length / columns);
+    const layout = calculateAgentSwarmGridLayout({
+      width,
+      height: height ?? Number.POSITIVE_INFINITY,
+      count: this.members.length,
+    });
+    const columns = Math.max(1, layout.columns);
+    const rows = layout.rows;
     const lines: string[] = [];
 
     for (let row = 0; row < rows; row += 1) {
@@ -576,7 +596,7 @@ export class AgentSwarmProgressComponent implements Component {
         const member = this.members[index];
         const snapshot = snapshots[index];
         if (member === undefined || snapshot === undefined) continue;
-        cells.push(padAnsi(this.renderCell(member, snapshot, cellWidth, nowMs), cellWidth));
+        cells.push(padAnsi(this.renderCell(member, snapshot, layout, nowMs), layout.cellWidth));
       }
       lines.push(cells.join(CELL_GAP));
     }
@@ -586,9 +606,13 @@ export class AgentSwarmProgressComponent implements Component {
   private renderCell(
     member: AgentSwarmMember,
     snapshot: AgentSwarmSnapshot,
-    width: number,
+    layout: AgentSwarmGridLayout,
     nowMs: number,
   ): string {
+    const width = layout.cellWidth;
+    if (!layout.renderText) {
+      return this.renderCompactCell(member, snapshot, layout.barCells, nowMs);
+    }
     if (snapshot.phase === 'pending') {
       return renderPendingCell(member, width, this.colors);
     }
@@ -596,23 +620,17 @@ export class AgentSwarmProgressComponent implements Component {
       return renderQueuedCell(member, width, this.colors);
     }
 
-    const fixedWidth = member.id.length + 1 + 2 + 1 + MIN_LABEL_WIDTH;
-    const availableForBar = width - fixedWidth - 2;
-    const barWidth =
-      availableForBar >= BRAILLE_BAR_MIN_WIDTH
-        ? Math.min(BRAILLE_BAR_MAX_WIDTH, availableForBar)
-        : Math.max(1, availableForBar);
     const estimate = this.progressEstimator.estimate({
       memberKey: member.id,
       phase: snapshot.phase,
-      capacityTicks: barWidth * BRAILLE_LEVELS.length,
+      capacityTicks: layout.barCells * BRAILLE_LEVELS.length,
       nowMs,
     });
     const id = chalk.hex(this.colors.primary)(member.id);
     const bar = brailleBar(
       estimate.displayTicks,
       snapshot.phase,
-      barWidth,
+      layout.barCells,
       this.colors,
       snapshot.phaseElapsedMs,
     );
@@ -620,6 +638,30 @@ export class AgentSwarmProgressComponent implements Component {
     const labelWidth = Math.max(1, width - visibleWidth(prefix));
     const label = renderCellLabel(member, snapshot, labelWidth, this.colors);
     return prefix + label;
+  }
+
+  private renderCompactCell(
+    member: AgentSwarmMember,
+    snapshot: AgentSwarmSnapshot,
+    barCells: number,
+    nowMs: number,
+  ): string {
+    const estimatePhase = snapshot.phase === 'pending' ? 'queued' : snapshot.phase;
+    const estimate = this.progressEstimator.estimate({
+      memberKey: member.id,
+      phase: estimatePhase,
+      capacityTicks: barCells * BRAILLE_LEVELS.length,
+      nowMs,
+    });
+    const id = chalk.hex(this.colors.primary)(member.id);
+    const bar = brailleBar(
+      estimate.displayTicks,
+      estimatePhase,
+      barCells,
+      this.colors,
+      snapshot.phaseElapsedMs,
+    );
+    return `${id} ${bar}`;
   }
 
   private findMemberForSubagent(
@@ -848,11 +890,108 @@ function parseAgentSwarmFailureText(block: string): string | undefined {
   return normalizeFailureText(match[1]);
 }
 
-function columnsForWidth(width: number, count: number): number {
-  if (count <= 1) return 1;
+export function calculateAgentSwarmGridLayout(
+  input: AgentSwarmGridLayoutInput,
+): AgentSwarmGridLayout {
+  const count = Math.max(0, Math.floor(input.count));
+  const width = Math.max(0, Math.floor(input.width));
+  const height = Math.max(0, Math.floor(input.height));
+  const idWidth = agentSwarmGridIdWidth(count);
+
+  if (count === 0) {
+    return {
+      renderText: true,
+      barCells: 1,
+      columns: 0,
+      rows: 0,
+      cellWidth: 0,
+    };
+  }
+
+  const textColumns = columnsForCellWidth(width, count, MIN_CELL_WIDTH);
+  const textRows = rowsForColumns(count, textColumns);
+  const textCellWidth = gridCellWidth(width, textColumns);
+  if (textRows <= height) {
+    return {
+      renderText: true,
+      barCells: barCellsForTextCellWidth(textCellWidth, idWidth),
+      columns: textColumns,
+      rows: textRows,
+      cellWidth: textCellWidth,
+    };
+  }
+
+  const compactMaxCellWidth = compactCellWidth(idWidth, BRAILLE_BAR_MAX_WIDTH);
+  const compactMaxColumns = columnsForCellWidth(width, count, compactMaxCellWidth);
+  const compactMaxRows = rowsForColumns(count, compactMaxColumns);
+  if (compactMaxRows <= height) {
+    return {
+      renderText: false,
+      barCells: BRAILLE_BAR_MAX_WIDTH,
+      columns: compactMaxColumns,
+      rows: compactMaxRows,
+      cellWidth: compactMaxCellWidth,
+    };
+  }
+
+  const targetColumns = height <= 0 ? count : Math.min(count, Math.ceil(count / height));
+  const targetCellWidth = gridCellWidth(width, targetColumns);
+  const compressedBarCells = Math.max(1, targetCellWidth - compactFixedWidth(idWidth));
+  const compressedCellWidth = compactCellWidth(idWidth, compressedBarCells);
+  const compressedColumns = columnsForCellWidth(width, count, compressedCellWidth);
+  return {
+    renderText: false,
+    barCells: compressedBarCells,
+    columns: compressedColumns,
+    rows: rowsForColumns(count, compressedColumns),
+    cellWidth: compressedCellWidth,
+  };
+}
+
+export function agentSwarmGridHeightForTerminalRows(rows: number | undefined): number | undefined {
+  if (rows === undefined || !Number.isFinite(rows)) return undefined;
+  return Math.max(0, Math.floor(rows) - AGENT_SWARM_NON_GRID_LINES);
+}
+
+function agentSwarmGridIdWidth(count: number): number {
+  return Math.max(3, String(Math.max(1, count)).length);
+}
+
+function columnsForCellWidth(width: number, count: number, cellWidth: number): number {
+  if (count <= 1) return count <= 0 ? 0 : 1;
   const gapWidth = visibleWidth(CELL_GAP);
-  const columns = Math.floor((width + gapWidth) / (MIN_CELL_WIDTH + gapWidth));
+  const columns = Math.floor((width + gapWidth) / (Math.max(1, cellWidth) + gapWidth));
   return Math.max(1, Math.min(count, columns));
+}
+
+function rowsForColumns(count: number, columns: number): number {
+  if (count <= 0) return 0;
+  return Math.ceil(count / Math.max(1, columns));
+}
+
+function gridCellWidth(width: number, columns: number): number {
+  if (columns <= 0) return 0;
+  const gapWidth = visibleWidth(CELL_GAP);
+  return Math.max(
+    1,
+    Math.floor((width - gapWidth * Math.max(0, columns - 1)) / columns),
+  );
+}
+
+function barCellsForTextCellWidth(cellWidth: number, idWidth: number): number {
+  const fixedWidth = idWidth + 1 + 2 + 1 + MIN_LABEL_WIDTH;
+  const availableForBar = cellWidth - fixedWidth - 2;
+  return availableForBar >= BRAILLE_BAR_MIN_WIDTH
+    ? Math.min(BRAILLE_BAR_MAX_WIDTH, availableForBar)
+    : Math.max(1, availableForBar);
+}
+
+function compactCellWidth(idWidth: number, barCells: number): number {
+  return compactFixedWidth(idWidth) + Math.max(1, barCells);
+}
+
+function compactFixedWidth(idWidth: number): number {
+  return idWidth + 1 + 2;
 }
 
 function summarizeSnapshots(snapshots: readonly AgentSwarmSnapshot[]): AgentSwarmSummary {

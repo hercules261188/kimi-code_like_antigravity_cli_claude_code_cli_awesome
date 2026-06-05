@@ -40,9 +40,9 @@ import { MoonLoader } from '../components/chrome/moon-loader';
 import {
   AgentSwarmProgressComponent,
   agentSwarmDescriptionFromArgs,
+  agentSwarmGridHeightForTerminalRows,
 } from '../components/messages/agent-swarm-progress';
 import { buildGoalMarker } from '../components/messages/goal-markers';
-import { SwarmModeMarkerComponent } from '../components/messages/swarm-markers';
 import { StatusMessageComponent } from '../components/messages/status-message';
 import {
   MAIN_AGENT_ID,
@@ -647,6 +647,9 @@ export class SessionEventHandler {
     const progress = new AgentSwarmProgressComponent({
       description: agentSwarmDescriptionFromArgs(args),
       colors: this.host.state.theme.colors,
+      availableGridHeight: () => agentSwarmGridHeightForTerminalRows(
+        this.host.state.ui.terminal.rows,
+      ),
       requestRender: () => {
         this.host.state.ui.requestRender();
       },
@@ -716,7 +719,6 @@ export class SessionEventHandler {
 
   private handleStatusUpdate(event: AgentStatusUpdatedEvent): void {
     const patch: Partial<AppState> = {};
-    const previousSwarmMode = this.host.state.appState.swarmMode;
     if (event.contextUsage !== undefined) patch.contextUsage = event.contextUsage;
     if (event.contextTokens !== undefined) patch.contextTokens = event.contextTokens;
     if (event.maxContextTokens !== undefined) patch.maxContextTokens = event.maxContextTokens;
@@ -727,9 +729,6 @@ export class SessionEventHandler {
     }
     if (event.model !== undefined) patch.model = event.model;
     if (Object.keys(patch).length > 0) this.host.setAppState(patch);
-    if (event.swarmMode !== undefined && event.swarmMode !== previousSwarmMode) {
-      this.renderSwarmModeMarker(event.swarmMode);
-    }
   }
 
   private handleGoalUpdated(event: GoalUpdatedEvent): void {
@@ -770,14 +769,6 @@ export class SessionEventHandler {
       state.transcriptContainer.addChild(marker);
       state.ui.requestRender();
     }
-  }
-
-  private renderSwarmModeMarker(active: boolean): void {
-    const { state } = this.host;
-    state.transcriptContainer.addChild(
-      new SwarmModeMarkerComponent(active, state.theme.colors),
-    );
-    state.ui.requestRender();
   }
 
   private scheduleQueuedGoalPromotion(): void {

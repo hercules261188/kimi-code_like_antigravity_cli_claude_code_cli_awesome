@@ -84,13 +84,22 @@ async function setPermissionForSwarm(host: SlashCommandHost, mode: PermissionMod
 }
 
 async function startSwarmTask(host: SlashCommandHost, prompt: string): Promise<void> {
-  if (!(await setSwarmMode(host, true))) return;
+  if (!host.state.appState.swarmMode && !(await setSwarmMode(host, true))) return;
+  host.renderSwarmModeMarker(true);
   host.sendNormalUserInput(prompt);
 }
 
 async function applySwarmMode(host: SlashCommandHost, enabled: boolean): Promise<void> {
+  if (enabled && host.state.appState.swarmMode) {
+    host.showStatus('Swarm mode is already on.');
+    return;
+  }
+  if (!enabled && !host.state.appState.swarmMode) {
+    host.showStatus('Swarm mode is already off.');
+    return;
+  }
   if (!(await setSwarmMode(host, enabled))) return;
-  host.showStatus(`Swarm mode ${enabled ? 'enabled' : 'disabled'}.`);
+  host.renderSwarmModeMarker(enabled);
 }
 
 async function setSwarmMode(host: SlashCommandHost, enabled: boolean): Promise<boolean> {

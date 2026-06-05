@@ -3,7 +3,7 @@ import type { Agent } from '..';
 import SWARM_MODE_ENTER_REMINDER from './enter-reminder.md';
 import SWARM_MODE_EXIT_REMINDER from './exit-reminder.md';
 
-type SwarmModeTrigger = 'explicit' | 'implicit';
+export type SwarmModeTrigger = 'explicit' | 'implicit';
 
 export class SwarmMode {
   protected active: SwarmModeTrigger | null = null;

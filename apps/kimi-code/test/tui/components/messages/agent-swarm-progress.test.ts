@@ -5,9 +5,11 @@ import chalk from 'chalk';
 import {
   AgentSwarmProgressComponent,
   agentSwarmDescriptionFromArgs,
+  agentSwarmGridHeightForTerminalRows,
   agentSwarmItemsFromArgs,
   agentSwarmPartialItemsCountFromArguments,
   agentSwarmPartialItemsFromArguments,
+  calculateAgentSwarmGridLayout,
 } from '#/tui/components/messages/agent-swarm-progress';
 import { AgentSwarmProgressEstimator } from '#/tui/components/messages/agent-swarm-progress-estimator';
 import { darkColors } from '#/tui/theme/colors';
@@ -28,6 +30,70 @@ function withAnsiColor<T>(run: () => T): T {
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe('calculateAgentSwarmGridLayout', () => {
+  it('keeps text when the text grid fits the available height', () => {
+    expect(calculateAgentSwarmGridLayout({
+      width: 100,
+      height: 3,
+      count: 9,
+    })).toEqual({
+      renderText: true,
+      barCells: 8,
+      columns: 3,
+      rows: 3,
+      cellWidth: 32,
+    });
+  });
+
+  it('drops text and recomputes columns when compact bars fit', () => {
+    expect(calculateAgentSwarmGridLayout({
+      width: 100,
+      height: 4,
+      count: 20,
+    })).toEqual({
+      renderText: false,
+      barCells: 8,
+      columns: 6,
+      rows: 4,
+      cellWidth: 14,
+    });
+  });
+
+  it('compresses bar cells from the target row count when compact max bars still overflow', () => {
+    expect(calculateAgentSwarmGridLayout({
+      width: 100,
+      height: 4,
+      count: 40,
+    })).toEqual({
+      renderText: false,
+      barCells: 2,
+      columns: 10,
+      rows: 4,
+      cellWidth: 8,
+    });
+  });
+
+  it('keeps at least one bar cell when no rows are available', () => {
+    expect(calculateAgentSwarmGridLayout({
+      width: 20,
+      height: 0,
+      count: 4,
+    })).toEqual({
+      renderText: false,
+      barCells: 1,
+      columns: 2,
+      rows: 2,
+      cellWidth: 7,
+    });
+  });
+
+  it('derives the grid height left inside the AgentSwarm block', () => {
+    expect(agentSwarmGridHeightForTerminalRows(undefined)).toBeUndefined();
+    expect(agentSwarmGridHeightForTerminalRows(10)).toBe(4);
+    expect(agentSwarmGridHeightForTerminalRows(4)).toBe(0);
+  });
 });
 
 describe('AgentSwarmProgressComponent', () => {
@@ -177,6 +243,33 @@ describe('AgentSwarmProgressComponent', () => {
     expect(queuedLine).toBeDefined();
     expect(queuedLine).toContain('002 Queued...');
     expect(queuedLine).toContain('003 Queued...');
+  });
+
+  it('omits subagent text when the compact grid is needed to fit available height', () => {
+    const component = new AgentSwarmProgressComponent({
+      description: 'Review changed files',
+      colors: darkColors,
+      availableGridHeight: () => 4,
+    });
+
+    for (let index = 1; index <= 20; index += 1) {
+      component.registerSubagent({
+        agentId: `agent-${String(index)}`,
+        description: `Review changed files #${String(index)} (coder)`,
+      });
+    }
+    component.markInputComplete();
+    for (let index = 1; index <= 20; index += 1) {
+      component.markStarted(`agent-${String(index)}`);
+    }
+
+    const lines = strip(component.render(102).join('\n')).split('\n');
+    const gridLines = lines.filter((line) => /\b\d{3} \[/.test(line));
+
+    expect(gridLines).toHaveLength(4);
+    expect(gridLines[0]).toContain('001 [');
+    expect(gridLines[0]).toContain('006 [');
+    expect(gridLines.join('\n')).not.toContain('Running');
   });
 
   it('advances from queued when a subagent tool call starts and marks terminal states', () => {

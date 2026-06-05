@@ -134,6 +134,7 @@ function makeSession(overrides: Record<string, unknown> = {}) {
     setThinking: vi.fn(async () => {}),
     setPermission: vi.fn(async () => {}),
     setPlanMode: vi.fn(async () => {}),
+    setSwarmMode: vi.fn(async () => {}),
     onEvent: vi.fn(() => vi.fn()),
     listMcpServers: vi.fn(async () => []),
     listSkills: vi.fn(async () => []),
@@ -2066,6 +2067,106 @@ command = "vim"
 
     expect(session.startBtw).not.toHaveBeenCalled();
     expect(stripSgr(renderTranscript(driver))).toContain('LLM not set');
+  });
+
+  it('renders swarm mode markers only from /swarm commands', async () => {
+    const { driver, session } = await makeDriver();
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'agent.status.updated',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        swarmMode: true,
+      } as Event,
+      vi.fn(),
+    );
+
+    expect(driver.state.appState.swarmMode).toBe(true);
+    expect(stripSgr(renderTranscript(driver))).not.toContain('Swarm activated');
+
+    const callsBeforeAlreadyOn = session.setSwarmMode.mock.calls.length;
+    driver.handleUserInput('/swarm on');
+
+    expect(session.setSwarmMode).toHaveBeenCalledTimes(callsBeforeAlreadyOn);
+    let transcript = stripSgr(renderTranscript(driver));
+    expect(countOccurrences(transcript, 'Swarm activated')).toBe(0);
+    expect(countOccurrences(transcript, 'Swarm mode is already on.')).toBe(1);
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'agent.status.updated',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        swarmMode: false,
+      } as Event,
+      vi.fn(),
+    );
+
+    expect(driver.state.appState.swarmMode).toBe(false);
+    transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).not.toContain('Swarm deactivated');
+
+    driver.handleUserInput('/swarm on');
+
+    await vi.waitFor(() => {
+      expect(session.setSwarmMode).toHaveBeenCalledWith(true);
+    });
+    await vi.waitFor(() => {
+      expect(countOccurrences(stripSgr(renderTranscript(driver)), 'Swarm activated')).toBe(1);
+    });
+
+    transcript = stripSgr(renderTranscript(driver));
+    expect(countOccurrences(transcript, 'Swarm activated')).toBe(1);
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'agent.status.updated',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        swarmMode: false,
+      } as Event,
+      vi.fn(),
+    );
+
+    expect(driver.state.appState.swarmMode).toBe(false);
+    transcript = stripSgr(renderTranscript(driver));
+    expect(transcript).not.toContain('Swarm deactivated');
+
+    const callsBeforeAlreadyOff = session.setSwarmMode.mock.calls.length;
+    driver.handleUserInput('/swarm off');
+
+    expect(session.setSwarmMode).toHaveBeenCalledTimes(callsBeforeAlreadyOff);
+    transcript = stripSgr(renderTranscript(driver));
+    expect(countOccurrences(transcript, 'Swarm deactivated')).toBe(0);
+    expect(countOccurrences(transcript, 'Swarm mode is already off.')).toBe(1);
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'agent.status.updated',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        swarmMode: true,
+      } as Event,
+      vi.fn(),
+    );
+
+    driver.handleUserInput('/swarm off');
+
+    await vi.waitFor(() => {
+      expect(session.setSwarmMode).toHaveBeenCalledWith(false);
+    });
+    await vi.waitFor(() => {
+      expect(countOccurrences(stripSgr(renderTranscript(driver)), 'Swarm deactivated')).toBe(1);
+    });
+
+    transcript = stripSgr(renderTranscript(driver));
+    expect(countOccurrences(transcript, 'Swarm activated')).toBe(1);
+    expect(countOccurrences(transcript, 'Swarm deactivated')).toBe(1);
+    expect(countOccurrences(transcript, 'Swarm mode is already on.')).toBe(1);
+    expect(countOccurrences(transcript, 'Swarm mode is already off.')).toBe(1);
+    expect(transcript).not.toContain('Swarm mode enabled.');
+    expect(transcript).not.toContain('Swarm mode disabled.');
   });
 
   it('queues Ctrl-S input instead of steering while /init is running', async () => {
