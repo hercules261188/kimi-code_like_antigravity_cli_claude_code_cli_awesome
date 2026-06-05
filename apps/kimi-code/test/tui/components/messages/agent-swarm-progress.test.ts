@@ -44,34 +44,72 @@ describe('calculateAgentSwarmGridLayout', () => {
       columns: 3,
       rows: 3,
       cellWidth: 32,
+      columnGap: 2,
+      leftPadding: 0,
     });
   });
 
   it('drops text and recomputes columns when compact bars fit', () => {
     expect(calculateAgentSwarmGridLayout({
       width: 100,
-      height: 4,
-      count: 20,
+      height: 5,
+      count: 30,
     })).toEqual({
       renderText: false,
       barCells: 8,
       columns: 6,
-      rows: 4,
-      cellWidth: 14,
+      rows: 5,
+      cellWidth: 15,
+      columnGap: 2,
+      leftPadding: 0,
     });
   });
 
-  it('compresses bar cells from the target row count when compact max bars still overflow', () => {
+  it('keeps text by adding columns when the minimum text cell width still fits', () => {
+    expect(calculateAgentSwarmGridLayout({
+      width: 120,
+      height: 4,
+      count: 20,
+    })).toEqual({
+      renderText: true,
+      barCells: 6,
+      columns: 5,
+      rows: 4,
+      cellWidth: 22,
+      columnGap: 2,
+      leftPadding: 0,
+    });
+  });
+
+  it('drops text when the target text columns would make bars narrower than six cells', () => {
+    expect(calculateAgentSwarmGridLayout({
+      width: 117,
+      height: 4,
+      count: 20,
+    })).toEqual({
+      renderText: false,
+      barCells: 14,
+      columns: 5,
+      rows: 4,
+      cellWidth: 21,
+      columnGap: 2,
+      leftPadding: 0,
+    });
+  });
+
+  it('compresses compact bar cells only as much as needed to keep the target row count', () => {
     expect(calculateAgentSwarmGridLayout({
       width: 100,
       height: 4,
       count: 40,
     })).toEqual({
       renderText: false,
-      barCells: 2,
+      barCells: 1,
       columns: 10,
       rows: 4,
       cellWidth: 8,
+      columnGap: 2,
+      leftPadding: 0,
     });
   });
 
@@ -82,16 +120,39 @@ describe('calculateAgentSwarmGridLayout', () => {
       count: 4,
     })).toEqual({
       renderText: false,
-      barCells: 1,
+      barCells: 2,
       columns: 2,
       rows: 2,
-      cellWidth: 7,
+      cellWidth: 9,
+      columnGap: 2,
+      leftPadding: 0,
     });
+  });
+
+  it('keeps compact gaps fixed and uses remaining width for equal bars', () => {
+    const layout = calculateAgentSwarmGridLayout({
+      width: 107,
+      height: 5,
+      count: 30,
+    });
+    const usedWidth =
+      layout.leftPadding +
+      layout.columns * layout.cellWidth +
+      Math.max(0, layout.columns - 1) * layout.columnGap;
+    const rightPadding = 107 - usedWidth;
+
+    expect(layout.renderText).toBe(false);
+    expect(layout.barCells).toBe(9);
+    expect(layout.cellWidth).toBe(16);
+    expect(layout.columnGap).toBe(2);
+    expect(layout.leftPadding).toBe(0);
+    expect(rightPadding).toBe(1);
   });
 
   it('derives the grid height left inside the AgentSwarm block', () => {
     expect(agentSwarmGridHeightForTerminalRows(undefined)).toBeUndefined();
     expect(agentSwarmGridHeightForTerminalRows(10)).toBe(4);
+    expect(agentSwarmGridHeightForTerminalRows(20, 5)).toBe(9);
     expect(agentSwarmGridHeightForTerminalRows(4)).toBe(0);
   });
 });
@@ -143,7 +204,7 @@ describe('AgentSwarmProgressComponent', () => {
     expect(statusLine).toBeDefined();
     expect(statusLine?.match(/ *$/)?.[0].length).toBe(0);
     expect(gridLine).toBeDefined();
-    expect(visibleWidth(gridLine ?? '')).toBeLessThan(visibleWidth(statusLine ?? ''));
+    expect(visibleWidth(gridLine ?? '')).toBeLessThanOrEqual(79);
   });
 
   it('renders orchestrating and prompting labels in primary blue', () => {
@@ -249,27 +310,93 @@ describe('AgentSwarmProgressComponent', () => {
     const component = new AgentSwarmProgressComponent({
       description: 'Review changed files',
       colors: darkColors,
-      availableGridHeight: () => 4,
+      availableGridHeight: () => 5,
     });
 
-    for (let index = 1; index <= 20; index += 1) {
+    for (let index = 1; index <= 30; index += 1) {
       component.registerSubagent({
         agentId: `agent-${String(index)}`,
         description: `Review changed files #${String(index)} (coder)`,
       });
     }
     component.markInputComplete();
-    for (let index = 1; index <= 20; index += 1) {
+    for (let index = 1; index <= 30; index += 1) {
       component.markStarted(`agent-${String(index)}`);
     }
 
     const lines = strip(component.render(102).join('\n')).split('\n');
     const gridLines = lines.filter((line) => /\b\d{3} \[/.test(line));
 
-    expect(gridLines).toHaveLength(4);
+    expect(gridLines).toHaveLength(5);
     expect(gridLines[0]).toContain('001 [');
     expect(gridLines[0]).toContain('006 [');
     expect(gridLines.join('\n')).not.toContain('Running');
+  });
+
+  it('keeps streamed pending items as text even when compact layout is selected', () => {
+    const component = new AgentSwarmProgressComponent({
+      description: 'Review changed files',
+      colors: darkColors,
+      availableGridHeight: () => 5,
+    });
+
+    component.updateArgs({
+      items: Array.from({ length: 30 }, (_item, index) => `f${String(index + 1)}.ts`),
+    });
+
+    const output = strip(component.render(102).join('\n'));
+
+    expect(output).toContain('001 f1.ts');
+    expect(output).toContain('006 f6.ts');
+    expect(output).not.toContain('001 [');
+  });
+
+  it('prefixes an aborted subagent label with the aborted mark', () => {
+    const component = new AgentSwarmProgressComponent({
+      description: 'Review changed files',
+      colors: darkColors,
+    });
+
+    component.registerSubagent({ agentId: 'agent-1', description: 'Review changed files #1 (coder)' });
+    component.markInputComplete();
+    component.markStarted('agent-1');
+    component.markCancelled('agent-1');
+
+    const output = strip(component.render(100).join('\n'));
+
+    expect(output).toContain('001 [');
+    expect(output).toContain('⊘ Aborted.');
+  });
+
+  it('renders terminal marks against compact bars when subagent text is hidden', () => {
+    const component = new AgentSwarmProgressComponent({
+      description: 'Review changed files',
+      colors: darkColors,
+      availableGridHeight: () => 5,
+    });
+
+    for (let index = 1; index <= 30; index += 1) {
+      component.registerSubagent({
+        agentId: `agent-${String(index)}`,
+        description: `Review changed files #${String(index)} (coder)`,
+      });
+    }
+    component.markInputComplete();
+    for (let index = 1; index <= 30; index += 1) {
+      component.markStarted(`agent-${String(index)}`);
+    }
+    component.markCompleted('agent-1');
+    component.markFailed('agent-2', 'Agent timed out');
+    component.markCancelled('agent-3');
+
+    const lines = strip(component.render(102).join('\n')).split('\n');
+    const gridLine = lines.find((line) => line.includes('001 ['));
+
+    expect(gridLine).toBeDefined();
+    expect(gridLine).toMatch(/001 \[[^\]]+\]✓ +002 \[[^\]]+\]✗ +003 \[[^\]]+\]⊘/);
+    expect(gridLine).not.toContain('Completed');
+    expect(gridLine).not.toContain('Failed');
+    expect(gridLine).not.toContain('Aborted');
   });
 
   it('advances from queued when a subagent tool call starts and marks terminal states', () => {

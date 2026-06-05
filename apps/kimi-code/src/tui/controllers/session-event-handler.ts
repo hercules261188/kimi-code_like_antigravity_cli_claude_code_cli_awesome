@@ -49,6 +49,7 @@ import {
   OAUTH_LOGIN_REQUIRED_CODE,
   OAUTH_LOGIN_REQUIRED_STARTUP_NOTICE,
 } from '../constant/kimi-tui';
+import { CHROME_GUTTER } from '../constant/rendering';
 import {
   argsRecord,
   formatErrorPayload,
@@ -113,6 +114,18 @@ export interface SessionEventHost {
   shiftQueuedMessage(): QueuedMessage | undefined;
   readonly btwPanelController: BtwPanelController;
   readonly tasksBrowserController: TasksBrowserController;
+}
+
+function renderedRowsAfterChild(
+  children: readonly Component[],
+  child: Component,
+  width: number,
+): number {
+  const childIndex = children.indexOf(child);
+  if (childIndex < 0) return 0;
+  return children
+    .slice(childIndex + 1)
+    .reduce((sum, component) => sum + component.render(width).length, 0);
 }
 
 export class SessionEventHandler {
@@ -644,12 +657,11 @@ export class SessionEventHandler {
       return existing;
     }
 
-    const progress = new AgentSwarmProgressComponent({
+    let progress: AgentSwarmProgressComponent;
+    progress = new AgentSwarmProgressComponent({
       description: agentSwarmDescriptionFromArgs(args),
       colors: this.host.state.theme.colors,
-      availableGridHeight: () => agentSwarmGridHeightForTerminalRows(
-        this.host.state.ui.terminal.rows,
-      ),
+      availableGridHeight: () => this.agentSwarmGridHeight(progress),
       requestRender: () => {
         this.host.state.ui.requestRender();
       },
@@ -661,6 +673,22 @@ export class SessionEventHandler {
     this.host.updateActivityPane();
     this.host.state.ui.requestRender();
     return progress;
+  }
+
+  private agentSwarmGridHeight(progress: AgentSwarmProgressComponent): number | undefined {
+    const { state } = this.host;
+    const terminalRows = state.ui.terminal.rows;
+    const terminalColumns = state.ui.terminal.columns;
+    if (!Number.isFinite(terminalColumns) || terminalColumns <= 0) {
+      return agentSwarmGridHeightForTerminalRows(terminalRows);
+    }
+
+    const width = Math.floor(terminalColumns);
+    const transcriptWidth = Math.max(1, width - CHROME_GUTTER * 2);
+    const rowsAfterSwarm =
+      renderedRowsAfterChild(state.transcriptContainer.children, progress, transcriptWidth) +
+      renderedRowsAfterChild(state.ui.children, state.transcriptContainer, width);
+    return agentSwarmGridHeightForTerminalRows(terminalRows, rowsAfterSwarm);
   }
 
   private handleToolProgress(event: ToolProgressEvent): void {

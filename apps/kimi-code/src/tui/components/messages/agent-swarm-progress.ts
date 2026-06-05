@@ -8,10 +8,10 @@ import {
 import { FAILURE_MARK, SUCCESS_MARK } from '#/tui/constant/symbols';
 import type { ColorPalette } from '#/tui/theme/colors';
 
-const MIN_CELL_WIDTH = 30;
+const TEXT_CELL_PREFERRED_WIDTH = 30;
 const CELL_GAP = '  ';
 const FRAME_INTERVAL_MS = 80;
-const BRAILLE_BAR_MIN_WIDTH = 5;
+const TEXT_BRAILLE_BAR_MIN_WIDTH = 6;
 const BRAILLE_BAR_MAX_WIDTH = 8;
 const BRAILLE_EMPTY = '⣀';
 const BRAILLE_RIGHT_COLUMN_FULL = '⢸';
@@ -23,12 +23,12 @@ const COMPLETE_FILL_MS = 360;
 const FAILED_PLACEHOLDER_RED_FACTOR = 0.75;
 const FAILED_PLACEHOLDER_NON_RED_FACTOR = 0.25;
 const STATUS_BAR_CHAR = '━';
+const CANCELLED_MARK = '⊘ ';
 const TOTAL_STATUS_BAR_GAP = 2;
 const PROMPTING_TEXT_TRAILING_GAP = 1;
 const ACTIVITY_SPINNER_PLACEHOLDER = '  ';
 const AGENT_SWARM_LEFT_INDENT = ' ';
 const AGENT_SWARM_RIGHT_GAP = 1;
-const AGENT_SWARM_GRID_RIGHT_GAP = 1;
 const AGENT_SWARM_NON_GRID_LINES = 6;
 const ORCHESTRATING_LABEL = 'Orchestrating...';
 const PROMPTING_LABEL = 'Prompting...';
@@ -99,6 +99,8 @@ export interface AgentSwarmGridLayout {
   readonly columns: number;
   readonly rows: number;
   readonly cellWidth: number;
+  readonly columnGap: number;
+  readonly leftPadding: number;
 }
 
 export interface AgentSwarmProgressOptions {
@@ -463,7 +465,7 @@ export class AgentSwarmProgressComponent implements Component {
       this.renderHeader(innerWidth, summary),
       '',
       ...this.renderGrid(
-        Math.max(1, innerWidth - AGENT_SWARM_GRID_RIGHT_GAP),
+        innerWidth,
         this.availableGridHeight?.(),
         snapshots,
         nowMs,
@@ -587,6 +589,8 @@ export class AgentSwarmProgressComponent implements Component {
     });
     const columns = Math.max(1, layout.columns);
     const rows = layout.rows;
+    const cellGap = ' '.repeat(layout.columnGap);
+    const leftPadding = ' '.repeat(layout.leftPadding);
     const lines: string[] = [];
 
     for (let row = 0; row < rows; row += 1) {
@@ -598,7 +602,7 @@ export class AgentSwarmProgressComponent implements Component {
         if (member === undefined || snapshot === undefined) continue;
         cells.push(padAnsi(this.renderCell(member, snapshot, layout, nowMs), layout.cellWidth));
       }
-      lines.push(cells.join(CELL_GAP));
+      lines.push(leftPadding + cells.join(cellGap));
     }
     return lines;
   }
@@ -610,11 +614,11 @@ export class AgentSwarmProgressComponent implements Component {
     nowMs: number,
   ): string {
     const width = layout.cellWidth;
-    if (!layout.renderText) {
-      return this.renderCompactCell(member, snapshot, layout.barCells, nowMs);
-    }
     if (snapshot.phase === 'pending') {
       return renderPendingCell(member, width, this.colors);
+    }
+    if (!layout.renderText) {
+      return this.renderCompactCell(member, snapshot, layout.barCells, nowMs);
     }
     if (snapshot.phase === 'queued' && snapshot.ticks <= 0) {
       return renderQueuedCell(member, width, this.colors);
@@ -661,7 +665,7 @@ export class AgentSwarmProgressComponent implements Component {
       this.colors,
       snapshot.phaseElapsedMs,
     );
-    return `${id} ${bar}`;
+    return `${id} ${bar}${compactTerminalMark(snapshot.phase, this.colors)}`;
   }
 
   private findMemberForSubagent(
@@ -905,61 +909,88 @@ export function calculateAgentSwarmGridLayout(
       columns: 0,
       rows: 0,
       cellWidth: 0,
+      columnGap: 0,
+      leftPadding: 0,
     };
   }
 
-  const textColumns = columnsForCellWidth(width, count, MIN_CELL_WIDTH);
+  const textGapWidth = visibleWidth(CELL_GAP);
+  const compactGapWidth = textGapWidth;
+  const textColumns = columnsForCellWidth(
+    width,
+    count,
+    TEXT_CELL_PREFERRED_WIDTH,
+    textGapWidth,
+  );
   const textRows = rowsForColumns(count, textColumns);
-  const textCellWidth = gridCellWidth(width, textColumns);
-  if (textRows <= height) {
+  const textCellWidth = gridCellWidth(width, textColumns, textGapWidth);
+  if (textRows <= height && textCellWidth >= minTextCellWidth(idWidth)) {
     return {
       renderText: true,
       barCells: barCellsForTextCellWidth(textCellWidth, idWidth),
       columns: textColumns,
       rows: textRows,
       cellWidth: textCellWidth,
+      columnGap: textGapWidth,
+      leftPadding: 0,
     };
   }
-
-  const compactMaxCellWidth = compactCellWidth(idWidth, BRAILLE_BAR_MAX_WIDTH);
-  const compactMaxColumns = columnsForCellWidth(width, count, compactMaxCellWidth);
-  const compactMaxRows = rowsForColumns(count, compactMaxColumns);
-  if (compactMaxRows <= height) {
+  const targetTextColumns = height <= 0 ? count : Math.min(count, Math.ceil(count / height));
+  const targetTextCellWidth = gridCellWidth(width, targetTextColumns, textGapWidth);
+  const targetTextRows = rowsForColumns(count, targetTextColumns);
+  if (
+    height > 0 &&
+    targetTextRows <= height &&
+    targetTextCellWidth >= minTextCellWidth(idWidth)
+  ) {
     return {
-      renderText: false,
-      barCells: BRAILLE_BAR_MAX_WIDTH,
-      columns: compactMaxColumns,
-      rows: compactMaxRows,
-      cellWidth: compactMaxCellWidth,
+      renderText: true,
+      barCells: barCellsForTextCellWidth(targetTextCellWidth, idWidth),
+      columns: targetTextColumns,
+      rows: targetTextRows,
+      cellWidth: targetTextCellWidth,
+      columnGap: textGapWidth,
+      leftPadding: 0,
     };
   }
 
-  const targetColumns = height <= 0 ? count : Math.min(count, Math.ceil(count / height));
-  const targetCellWidth = gridCellWidth(width, targetColumns);
-  const compressedBarCells = Math.max(1, targetCellWidth - compactFixedWidth(idWidth));
-  const compressedCellWidth = compactCellWidth(idWidth, compressedBarCells);
-  const compressedColumns = columnsForCellWidth(width, count, compressedCellWidth);
+  const compactColumns = compactColumnsForLayout(width, count, height, idWidth, compactGapWidth);
+  const compactCellWidthBudget = gridCellWidth(width, compactColumns, compactGapWidth);
+  const compactBarCells = compactBarCellsForCellWidth(compactCellWidthBudget, idWidth);
+  const compactActualCellWidth = compactCellWidth(idWidth, compactBarCells);
   return {
     renderText: false,
-    barCells: compressedBarCells,
-    columns: compressedColumns,
-    rows: rowsForColumns(count, compressedColumns),
-    cellWidth: compressedCellWidth,
+    barCells: compactBarCells,
+    columns: compactColumns,
+    rows: rowsForColumns(count, compactColumns),
+    cellWidth: compactActualCellWidth,
+    columnGap: compactGapWidth,
+    leftPadding: 0,
   };
 }
 
-export function agentSwarmGridHeightForTerminalRows(rows: number | undefined): number | undefined {
+export function agentSwarmGridHeightForTerminalRows(
+  rows: number | undefined,
+  followingRows = 0,
+): number | undefined {
   if (rows === undefined || !Number.isFinite(rows)) return undefined;
-  return Math.max(0, Math.floor(rows) - AGENT_SWARM_NON_GRID_LINES);
+  const rowsAfterSwarm = Number.isFinite(followingRows)
+    ? Math.max(0, Math.floor(followingRows))
+    : 0;
+  return Math.max(0, Math.floor(rows) - rowsAfterSwarm - AGENT_SWARM_NON_GRID_LINES);
 }
 
 function agentSwarmGridIdWidth(count: number): number {
   return Math.max(3, String(Math.max(1, count)).length);
 }
 
-function columnsForCellWidth(width: number, count: number, cellWidth: number): number {
+function columnsForCellWidth(
+  width: number,
+  count: number,
+  cellWidth: number,
+  gapWidth: number,
+): number {
   if (count <= 1) return count <= 0 ? 0 : 1;
-  const gapWidth = visibleWidth(CELL_GAP);
   const columns = Math.floor((width + gapWidth) / (Math.max(1, cellWidth) + gapWidth));
   return Math.max(1, Math.min(count, columns));
 }
@@ -969,29 +1000,56 @@ function rowsForColumns(count: number, columns: number): number {
   return Math.ceil(count / Math.max(1, columns));
 }
 
-function gridCellWidth(width: number, columns: number): number {
+function gridCellWidth(width: number, columns: number, gapWidth: number): number {
   if (columns <= 0) return 0;
-  const gapWidth = visibleWidth(CELL_GAP);
   return Math.max(
     1,
     Math.floor((width - gapWidth * Math.max(0, columns - 1)) / columns),
   );
 }
 
+function minTextCellWidth(idWidth: number): number {
+  return idWidth + TEXT_BRAILLE_BAR_MIN_WIDTH + 4 + MIN_LABEL_WIDTH;
+}
+
 function barCellsForTextCellWidth(cellWidth: number, idWidth: number): number {
   const fixedWidth = idWidth + 1 + 2 + 1 + MIN_LABEL_WIDTH;
-  const availableForBar = cellWidth - fixedWidth - 2;
-  return availableForBar >= BRAILLE_BAR_MIN_WIDTH
+  const availableForBar = cellWidth - fixedWidth;
+  return availableForBar >= TEXT_BRAILLE_BAR_MIN_WIDTH
     ? Math.min(BRAILLE_BAR_MAX_WIDTH, availableForBar)
-    : Math.max(1, availableForBar);
+    : TEXT_BRAILLE_BAR_MIN_WIDTH;
+}
+
+function compactColumnsForLayout(
+  width: number,
+  count: number,
+  height: number,
+  idWidth: number,
+  gapWidth: number,
+): number {
+  const maxColumns = columnsForCellWidth(width, count, compactCellWidth(idWidth, 1), gapWidth);
+  if (height <= 0) return maxColumns;
+  const targetColumns = Math.min(count, Math.ceil(count / height));
+  return Math.max(1, Math.min(targetColumns, maxColumns));
+}
+
+function compactBarCellsForCellWidth(cellWidth: number, idWidth: number): number {
+  return Math.max(
+    1,
+    cellWidth - compactFixedWidth(idWidth) - compactTerminalMarkWidth(),
+  );
 }
 
 function compactCellWidth(idWidth: number, barCells: number): number {
-  return compactFixedWidth(idWidth) + Math.max(1, barCells);
+  return compactFixedWidth(idWidth) + Math.max(1, barCells) + compactTerminalMarkWidth();
 }
 
 function compactFixedWidth(idWidth: number): number {
   return idWidth + 1 + 2;
+}
+
+function compactTerminalMarkWidth(): number {
+  return 1;
 }
 
 function summarizeSnapshots(snapshots: readonly AgentSwarmSnapshot[]): AgentSwarmSummary {
@@ -1108,7 +1166,7 @@ function activityPrefixForTotalStatus(status: TotalStatus, colors: ColorPalette)
     case 'failed':
       return ` ${chalk.hex(color)(FAILURE_MARK.trimEnd())}`;
     case 'aborted':
-      return ` ${chalk.hex(color)('⊘')}`;
+      return ` ${chalk.hex(color)(CANCELLED_MARK.trimEnd())}`;
     case 'working':
     case 'suspended':
       return ACTIVITY_SPINNER_PLACEHOLDER;
@@ -1269,6 +1327,13 @@ function renderCellLabel(
   if (snapshot.phase === 'completed') {
     return renderCompletedCellLabel(member.completedText ?? latestLine, width, colors);
   }
+  if (snapshot.phase === 'cancelled') {
+    return truncateWithColor(
+      `${CANCELLED_MARK}${PHASE_LABELS[snapshot.phase]}`,
+      width,
+      colors.warning,
+    );
+  }
   return truncateWithColor(PHASE_LABELS[snapshot.phase], width, phaseColor(snapshot.phase, colors));
 }
 
@@ -1280,6 +1345,22 @@ function renderCompletedCellLabel(
   const finalText = normalizeFinalOutputText(text);
   const label = finalText === undefined ? SUCCESS_MARK.trimEnd() : `${SUCCESS_MARK}${finalText}`;
   return truncateWithColor(label, width, colors.success);
+}
+
+function compactTerminalMark(phase: AgentSwarmPhase, colors: ColorPalette): string {
+  switch (phase) {
+    case 'completed':
+      return chalk.hex(colors.success)(SUCCESS_MARK.trimEnd());
+    case 'failed':
+      return chalk.hex(colors.error)(FAILURE_MARK.trimEnd());
+    case 'cancelled':
+      return chalk.hex(colors.warning)(CANCELLED_MARK.trimEnd());
+    case 'pending':
+    case 'queued':
+    case 'running':
+    case 'suspended':
+      return '';
+  }
 }
 
 function renderPendingCell(
