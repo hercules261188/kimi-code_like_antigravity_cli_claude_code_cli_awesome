@@ -22,13 +22,13 @@ import type { ColorPalette, ResolvedTheme } from './colors';
  * `~/.kimi-code/themes/<name>.json`.
  */
 export type BuiltInTheme = 'dark' | 'light' | 'auto';
-export type ThemeName = BuiltInTheme | string;
+export type ThemeName = BuiltInTheme | (string & {});
 
 export function isBuiltInTheme(value: string): value is BuiltInTheme {
   return value === 'dark' || value === 'light' || value === 'auto';
 }
 
-export function isThemeName(value: string): value is ThemeName {
+export function isThemeName(_value: string): _value is ThemeName {
   return true; // any string is a valid theme name (custom themes)
 }
 

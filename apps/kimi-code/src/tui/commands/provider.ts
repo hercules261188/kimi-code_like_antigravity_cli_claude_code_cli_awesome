@@ -26,7 +26,6 @@ import {
 } from '../components/dialogs/provider-manager';
 import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model-selector';
 import { DEFAULT_OAUTH_PROVIDER_NAME } from '../constant/kimi-tui';
-import { currentTheme } from '#/tui/theme';
 import { formatErrorMessage } from '../utils/event-payload';
 import {
   promptApiKey,

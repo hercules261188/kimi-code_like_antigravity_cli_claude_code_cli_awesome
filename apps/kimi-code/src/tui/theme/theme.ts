@@ -9,18 +9,14 @@
  */
 
 import chalk from 'chalk';
-import type { MarkdownTheme, EditorTheme } from '@earendil-works/pi-tui';
 
 import type { ColorPalette } from './colors';
 import { darkColors } from './colors';
-import { createMarkdownTheme, createEditorTheme } from './pi-tui-theme';
 
 export type ColorToken = keyof ColorPalette;
 
 export class Theme {
   private _palette: ColorPalette;
-  private _markdownTheme: MarkdownTheme | undefined;
-  private _editorTheme: EditorTheme | undefined;
 
   constructor(palette: ColorPalette) {
     this._palette = palette;
@@ -32,8 +28,6 @@ export class Theme {
 
   setPalette(palette: ColorPalette): void {
     this._palette = palette;
-    this._markdownTheme = undefined;
-    this._editorTheme = undefined;
   }
 
   color(token: ColorToken): string {
@@ -92,22 +86,6 @@ export class Theme {
 
   strikethrough(text: string): string {
     return chalk.strikethrough(text);
-  }
-
-  /* ── pi-tui adapters (lazily built, invalidated on palette change) ── */
-
-  get markdownTheme(): MarkdownTheme {
-    if (this._markdownTheme === undefined) {
-      this._markdownTheme = createMarkdownTheme();
-    }
-    return this._markdownTheme;
-  }
-
-  get editorTheme(): EditorTheme {
-    if (this._editorTheme === undefined) {
-      this._editorTheme = createEditorTheme();
-    }
-    return this._editorTheme;
   }
 }
 

@@ -43,7 +43,6 @@ import {
   visibleWidth,
   type Focusable,
 } from '@earendil-works/pi-tui';
-import chalk from 'chalk';
 
 import { DEFAULT_OAUTH_PROVIDER_NAME } from '#/constant/app';
 import { CURRENT_MARK, SELECT_POINTER } from '#/tui/constant/symbols';

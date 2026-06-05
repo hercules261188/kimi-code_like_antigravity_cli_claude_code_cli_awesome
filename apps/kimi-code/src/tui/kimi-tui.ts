@@ -21,7 +21,6 @@ import type {
   PromptPart,
   Session,
 } from '@moonshot-ai/kimi-code-sdk';
-import chalk from 'chalk';
 
 import type { CLIOptions } from '#/cli/options';
 import { MigrationScreenComponent, type MigrationScreenResult } from '#/migration/index';
@@ -1590,7 +1589,7 @@ export class KimiTUI {
     if (!isBuiltInTheme(this.state.appState.theme) || this.state.appState.theme !== 'auto') return;
 
     this.terminalThemeTrackingDispose = installTerminalThemeTracking(this.state, (resolved) => {
-      this.applyResolvedAutoTheme(resolved);
+      void this.applyResolvedAutoTheme(resolved);
     });
   }
 

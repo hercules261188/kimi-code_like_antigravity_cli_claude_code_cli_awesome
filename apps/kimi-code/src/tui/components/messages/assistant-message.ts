@@ -11,6 +11,7 @@ import { Container, Markdown, visibleWidth } from '@earendil-works/pi-tui';
 import { MESSAGE_INDENT } from '#/tui/constant/rendering';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
+import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 
 export class AssistantMessageComponent implements Component {
   private contentContainer: Container;
@@ -32,7 +33,7 @@ export class AssistantMessageComponent implements Component {
     this.lastText = displayText;
     this.contentContainer.clear();
     if (displayText.trim().length > 0) {
-      this.contentContainer.addChild(new Markdown(displayText.trim(), 0, 0, currentTheme.markdownTheme));
+      this.contentContainer.addChild(new Markdown(displayText.trim(), 0, 0, createMarkdownTheme()));
     }
   }
 
@@ -43,7 +44,7 @@ export class AssistantMessageComponent implements Component {
     this.contentContainer.clear();
     if (this.lastText.trim().length > 0) {
       this.contentContainer.addChild(
-        new Markdown(this.lastText.trim(), 0, 0, currentTheme.markdownTheme),
+        new Markdown(this.lastText.trim(), 0, 0, createMarkdownTheme()),
       );
     }
   }

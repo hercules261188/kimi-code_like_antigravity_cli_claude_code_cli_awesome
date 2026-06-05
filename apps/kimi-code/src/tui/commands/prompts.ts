@@ -16,7 +16,6 @@ import { ChoicePickerComponent, type ChoiceOption } from '../components/dialogs/
 import { FeedbackInputDialogComponent, type FeedbackInputDialogResult } from '../components/dialogs/feedback-input-dialog';
 import { ModelSelectorComponent } from '../components/dialogs/model-selector';
 import { PlatformSelectorComponent } from '../components/dialogs/platform-selector';
-import { currentTheme } from '#/tui/theme';
 import type { SlashCommandHost } from './dispatch';
 
 export function promptPlatformSelection(host: SlashCommandHost): Promise<string | undefined> {

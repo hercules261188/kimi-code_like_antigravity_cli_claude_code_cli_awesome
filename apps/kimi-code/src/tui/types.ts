@@ -9,7 +9,7 @@ import type {
 
 import type { NotificationsConfig, UpgradePreferences } from './config';
 import type { PendingApproval, PendingQuestion } from './reverse-rpc/types';
-import type { ColorToken, ThemeName, ResolvedTheme } from './theme';
+import type { ColorToken, ThemeName } from './theme';
 
 export interface AppState {
   model: string;

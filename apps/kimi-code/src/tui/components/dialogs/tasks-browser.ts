@@ -23,7 +23,6 @@ import {
   type Focusable,
 } from '@earendil-works/pi-tui';
 import type { BackgroundTaskInfo, BackgroundTaskStatus } from '@moonshot-ai/kimi-code-sdk';
-import chalk from 'chalk';
 
 import { SELECT_POINTER } from '@/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';

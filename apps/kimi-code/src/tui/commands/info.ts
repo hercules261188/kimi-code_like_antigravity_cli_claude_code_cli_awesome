@@ -17,7 +17,6 @@ import {
   withFeedbackVersionPrefix,
 } from '../constant/feedback';
 import { isManagedUsageProvider } from '../constant/kimi-tui';
-import { currentTheme } from '#/tui/theme';
 import { formatErrorMessage } from '../utils/event-payload';
 import { openUrl } from '#/utils/open-url';
 import { promptFeedbackInput } from './prompts';

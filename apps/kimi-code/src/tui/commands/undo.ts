@@ -12,7 +12,6 @@ import { ToolCallComponent } from '../components/messages/tool-call';
 import { UserMessageComponent } from '../components/messages/user-message';
 import { NO_ACTIVE_SESSION_MESSAGE } from '../constant/kimi-tui';
 import type { TranscriptEntry } from '../types';
-import { currentTheme } from '#/tui/theme';
 import { formatErrorMessage } from '../utils/event-payload';
 import { getTranscriptComponentEntry } from '../utils/transcript-component-metadata';
 import type { SlashCommandHost } from './dispatch';

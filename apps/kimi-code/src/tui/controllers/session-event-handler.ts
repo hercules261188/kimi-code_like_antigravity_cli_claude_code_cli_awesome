@@ -1,4 +1,3 @@
-import chalk from 'chalk';
 import type { Component, Focusable } from '@earendil-works/pi-tui';
 import type {
   AgentStatusUpdatedEvent,
@@ -801,7 +800,6 @@ export class SessionEventHandler {
   }
 
   private renderMcpServerStatus(server: McpServerStatusSnapshot): void {
-    const { state } = this.host;
     const key = mcpServerStatusKey(server);
     if (this.renderedMcpServerStatusKeys.get(server.name) === key) return;
     this.renderedMcpServerStatusKeys.set(server.name, key);

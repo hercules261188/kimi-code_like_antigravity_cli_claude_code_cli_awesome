@@ -1,17 +1,12 @@
 import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 
-import type { BuiltInTheme, ThemeName } from '#/tui/theme/index';
-import { isBuiltInTheme, listCustomThemes } from '#/tui/theme';
+import type { ThemeName } from '#/tui/theme/index';
 
 const THEME_OPTIONS: readonly ChoiceOption[] = [
   { value: 'auto', label: 'Auto (match terminal)' },
   { value: 'dark', label: 'Dark' },
   { value: 'light', label: 'Light' },
 ];
-
-function isThemeChoice(value: string): value is BuiltInTheme {
-  return isBuiltInTheme(value);
-}
 
 export interface ThemeSelectorOptions {
   readonly currentValue: ThemeName;

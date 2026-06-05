@@ -12,6 +12,7 @@ import { Markdown, visibleWidth } from '@earendil-works/pi-tui';
 
 import { currentTheme } from '#/tui/theme';
 import type { ColorToken } from '#/tui/theme';
+import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 import { toTerminalHyperlink } from '#/utils/terminal-hyperlink';
 
 const LEFT_MARGIN = 2; // two-space indent matching other tool call children
@@ -46,7 +47,7 @@ export class PlanBoxComponent implements Component {
     // parse + wrap output keyed on (text, width), so reusing the same
     // instance means repeated render() calls from the parent Container
     // hit the cache instead of re-parsing on every frame.
-    this.markdown = new Markdown(plan.trim(), 0, 0, currentTheme.markdownTheme);
+    this.markdown = new Markdown(plan.trim(), 0, 0, createMarkdownTheme());
     this.maxContentLines = opts?.maxContentLines;
     this.expanded = opts?.expanded ?? false;
     this.status = opts?.status;

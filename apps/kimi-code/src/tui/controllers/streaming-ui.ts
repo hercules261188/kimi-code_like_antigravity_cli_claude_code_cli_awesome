@@ -11,7 +11,6 @@ import { hasDispose } from '../utils/component-capabilities';
 import { appendStreamingArgsPreview, parseStreamingArgs } from '../utils/event-payload';
 import { notifyTerminalOnce } from '../utils/terminal-notification';
 import { nextTranscriptId } from '../utils/transcript-id';
-import { currentTheme } from '#/tui/theme';
 import type { TodoItem } from '../components/chrome/todo-panel';
 import type {
   AppState,

@@ -22,7 +22,6 @@ import {
   visibleWidth,
   type Focusable,
 } from '@earendil-works/pi-tui';
-import chalk from 'chalk';
 
 import { currentTheme } from '#/tui/theme';
 

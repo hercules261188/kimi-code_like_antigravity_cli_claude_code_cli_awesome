@@ -19,7 +19,6 @@ import {
   type Focusable,
 } from '@earendil-works/pi-tui';
 import type { BackgroundTaskInfo, BackgroundTaskStatus } from '@moonshot-ai/kimi-code-sdk';
-import chalk from 'chalk';
 
 import { currentTheme } from '#/tui/theme';
 import { printableChar } from '@/tui/utils/printable-key';
