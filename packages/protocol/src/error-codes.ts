@@ -26,6 +26,16 @@ export const ErrorCode = {
   /** JSON 解析失败、字段类型错 */
   REQUEST_MALFORMED: 40002,
 
+  // -- 4011x 上游 provider 鉴权 / 配置缺位 (P2.1 D1) --
+  /** daemon 没有任何 provider 配置 */
+  AUTH_PROVISIONING_REQUIRED: 40110,
+  /** provider 存在但 token / api_key 缺失 */
+  AUTH_TOKEN_MISSING: 40111,
+  /** 刷新 token 收到 401（用户撤销了授权） */
+  AUTH_TOKEN_UNAUTHORIZED: 40112,
+  /** 默认 / 请求的 model 解析不到 provider */
+  AUTH_MODEL_NOT_RESOLVED: 40113,
+
   /** session_id 不存在 */
   SESSION_NOT_FOUND: 40401,
   /** prompt_id 不存在 */
@@ -108,11 +118,16 @@ export const ErrorCode = {
 
 /**
  * Reserved (intentionally unallocated; do NOT reuse for new variants):
- *   - 40101 auth.invalid_token
- *   - 40102 auth.missing_token
- *   - 40103 auth.forbidden_origin
+ *   - 40101 auth.invalid_token        (daemon's own token; future)
+ *   - 40102 auth.missing_token        (daemon's own token; future)
+ *   - 40103 auth.forbidden_origin     (daemon's own token; future)
  *   - 42901 rate.limited
  *   - 50002 protocol.version_mismatch
+ *
+ * 4011x is now claimed (P2.1 D1) for "上游 provider 鉴权 / 配置缺位" —
+ * semantically distinct from "daemon 自身鉴权", which the 4010x段 will
+ * eventually carry. Sub-codes within 4012x+ remain open for future daemon
+ * auth refinements.
  *
  * These cover features the first daemon version intentionally cuts (no auth,
  * no rate limiting, no version handshake). When those features land, they
@@ -138,6 +153,11 @@ export const ErrorCodeReason: Readonly<Record<ErrorCode, string>> = {
 
   [ErrorCode.VALIDATION_FAILED]: 'validation.failed',
   [ErrorCode.REQUEST_MALFORMED]: 'request.malformed',
+
+  [ErrorCode.AUTH_PROVISIONING_REQUIRED]: 'auth.provisioning_required',
+  [ErrorCode.AUTH_TOKEN_MISSING]: 'auth.token_missing',
+  [ErrorCode.AUTH_TOKEN_UNAUTHORIZED]: 'auth.token_unauthorized',
+  [ErrorCode.AUTH_MODEL_NOT_RESOLVED]: 'auth.model_not_resolved',
 
   [ErrorCode.SESSION_NOT_FOUND]: 'session.not_found',
   [ErrorCode.PROMPT_NOT_FOUND]: 'prompt.not_found',

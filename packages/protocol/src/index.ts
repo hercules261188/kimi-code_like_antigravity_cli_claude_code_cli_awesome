@@ -31,6 +31,8 @@ export * from './file';
 // REST endpoint shapes (per-endpoint Zod schemas + TS types). Mirrors
 // REST.md §3.x; each file under `./rest/` owns ONE endpoint family.
 export * from './rest/meta';
+export * from './rest/auth';
+export * from './rest/oauth';
 export * from './rest/session';
 export * from './rest/message';
 export * from './rest/prompt';
