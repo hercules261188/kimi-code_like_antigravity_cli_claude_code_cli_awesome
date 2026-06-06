@@ -30,14 +30,14 @@ import {
   type QueuedSubagentRunResult,
   type QueuedSubagentSuspended,
   type QueuedSubagentTask,
-} from './subagent-launch-queue';
+} from './subagent-batch';
 import SUMMARY_CONTINUATION_PROMPT from './summary-continuation.md';
 
 export type {
   QueuedSubagentRunOptions,
   QueuedSubagentRunResult,
   QueuedSubagentTask,
-} from './subagent-launch-queue';
+} from './subagent-batch';
 
 /**
  * A subagent summary shorter than this many characters triggers one

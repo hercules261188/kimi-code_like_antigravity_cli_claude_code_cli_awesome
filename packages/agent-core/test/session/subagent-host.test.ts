@@ -21,7 +21,7 @@ import {
   SubagentLaunchQueue,
   type QueuedSubagentAttemptOptions,
   type QueuedSubagentAttemptOutcome,
-} from '../../src/session/subagent-launch-queue';
+} from '../../src/session/subagent-batch';
 import { abortError, userCancellationReason } from '../../src/utils/abort';
 import { testAgent, type AgentTestContext } from '../agent/harness/agent';
 import { createFakeKaos } from '../tools/fixtures/fake-kaos';
