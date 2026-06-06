@@ -21,7 +21,7 @@ Rate-limit phase:
 - A provider rate limit requeues while there is other unfinished work. Save the agent id for same-agent retry, emit suspended, and requeue the task at the front; its own eligibility delays are 3000 ms, 6000 ms, 12000 ms, then doubling.
 - If the rate-limited attempt is the only unfinished task, fail that task instead of suspending the whole batch forever.
 - Enter with capacity equal to ready normal launches, minimum 1; set the next global launch no earlier than 3000 ms later; then shrink capacity by 1, minimum 1. Later rate limits shrink by 1, minimum 1, at most once per 2000 ms.
-- Each pass starts at most 1 task: active attempts must be below capacity, global launch time reached, and task eligibility reached. Choose the first eligible queued task, then set next global launch to now plus the current interval. If blocked by time, wake at the earlier of next launch/eligibility and next capacity recovery.
+- Each pass starts at most 1 task: active attempts must be below capacity, global launch time reached, and task eligibility reached. Choose the first eligible queued task, then set next global launch to now plus the current interval. If blocked by time or queued work remains after a launch, wake at the earlier of next launch/eligibility and next capacity recovery.
 - Core recovery rule: in rate-limit phase, if work is queued and no provider rate limit happened for 3 minutes, capacity increases by 1, which can launch one more task immediately. This can happen once per quiet window; a new rate limit restarts the window. If active attempts still fill capacity, wake at the next recovery time.
 
 Results and cancellation:
@@ -250,6 +250,7 @@ export class SubagentBatch<T> {
     const [state] = this.pending.splice(pendingIndex, 1);
     this.startAttempt(state!);
     this.nextRateLimitLaunchAt = now + this.globalRetryIntervalMs;
+    this.scheduleNextRateLimitWakeup(now);
   }
 
   private startAttempt(state: TaskState<T>): void {
@@ -416,6 +417,7 @@ export class SubagentBatch<T> {
     state.retryCount += 1;
     const retryDelay = retry.createTimeout(Math.max(0, state.retryCount - 1), {
       minTimeout: RATE_LIMIT_RETRY_BASE_MS,
+      maxTimeout: Number.POSITIVE_INFINITY,
       factor: RATE_LIMIT_RETRY_FACTOR,
       randomize: false,
     });
@@ -493,6 +495,20 @@ export class SubagentBatch<T> {
       this.rateLimitLaunchTimer = undefined;
       this.schedule();
     }, wakeupAt - now);
+  }
+
+  private scheduleNextRateLimitWakeup(now: number): void {
+    if (this.pending.length === 0) return;
+
+    const nextWakeupAt =
+      this.active.size >= this.rateLimitCapacity
+        ? this.nextRateLimitCapacityRecoveryAt()
+        : Math.min(
+            Math.max(this.nextRateLimitLaunchAt, this.nextPendingReadyAt()),
+            this.nextRateLimitCapacityRecoveryAt(),
+          );
+
+    this.scheduleRateLimitWakeup(nextWakeupAt, now);
   }
 
   private nextPendingReadyAt(): number {

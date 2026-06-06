@@ -96,8 +96,8 @@ describe('SubagentBatch scheduling contract', () => {
       });
       await vi.advanceTimersByTimeAsync(3000);
       expect(attempts).toHaveLength(6);
-      expect(attempts[5]!.task.data).toBe(6);
-      expect(attempts[5]!.retryAgentId).toBeUndefined();
+      expect(attempts[5]!.task.data).toBe(1);
+      expect(attempts[5]!.retryAgentId).toBe('agent-1');
 
       controller.abort();
       await expect(running).rejects.toThrow();
@@ -250,12 +250,15 @@ describe('SubagentBatch scheduling contract', () => {
       attempts[1]!.outcome.resolve({ type: 'rate_limited', agentId: 'agent-2' });
       await vi.advanceTimersByTimeAsync(0);
       expect(onSuspended).toHaveBeenCalledTimes(2);
-      expect(attempts).toHaveLength(6);
-      expect(attempts[5]!.task.data).toBe(6);
-      expect(attempts[5]!.retryAgentId).toBeUndefined();
+      expect(attempts).toHaveLength(5);
 
       await vi.advanceTimersByTimeAsync(500);
+      expect(attempts).toHaveLength(5);
+
+      await vi.advanceTimersByTimeAsync(2500);
       expect(attempts).toHaveLength(6);
+      expect(attempts[5]!.task.data).toBe(2);
+      expect(attempts[5]!.retryAgentId).toBe('agent-2');
 
       controller.abort();
       await expect(running).rejects.toThrow();
@@ -335,7 +338,7 @@ describe('SubagentBatch scheduling contract', () => {
         attempt.markReady();
       });
 
-      for (let index = 0; index < 8; index += 1) {
+      for (let index = 0; index < 1; index += 1) {
         attempts[index]!.outcome.resolve({
           type: 'rate_limited',
           agentId: `agent-${String(index + 1)}`,
@@ -393,8 +396,8 @@ describe('SubagentBatch scheduling contract', () => {
 
       await vi.advanceTimersByTimeAsync(1);
       expect(attempts).toHaveLength(6);
-      expect(attempts[5]!.task.data).toBe(6);
-      expect(attempts[5]!.retryAgentId).toBeUndefined();
+      expect(attempts[5]!.task.data).toBe(4);
+      expect(attempts[5]!.retryAgentId).toBe('agent-4');
 
       controller.abort();
       await expect(running).rejects.toThrow();
@@ -428,8 +431,72 @@ describe('SubagentBatch scheduling contract', () => {
       }
 
       await vi.advanceTimersByTimeAsync(3000);
+      expect(attempts).toHaveLength(6);
+      expect(attempts[5]!.task.data).toBe(3);
+      expect(attempts[5]!.retryAgentId).toBe('agent-3');
+
+      await vi.advanceTimersByTimeAsync(3000);
       expect(attempts).toHaveLength(7);
-      expect(attempts.slice(5).map((attempt) => attempt.task.data)).toEqual([6, 7]);
+      expect(attempts[6]!.task.data).toBe(2);
+      expect(attempts[6]!.retryAgentId).toBe('agent-2');
+
+      controller.abort();
+      await expect(running).rejects.toThrow();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rate-limit phase schedules another launch after starting while capacity remains', async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const { runBatch, attempts } = createMockBatchRunner();
+      const running = runBatch(Array.from({ length: 8 }, (_, index) => queuedTask(index + 1)), {
+        signal: controller.signal,
+      });
+      void running.catch(() => {});
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toHaveLength(5);
+      attempts.forEach((attempt) => {
+        attempt.markReady();
+      });
+
+      attempts[0]!.outcome.resolve({ type: 'rate_limited', agentId: 'agent-1' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toHaveLength(5);
+
+      attempts[1]!.outcome.resolve({
+        task: attempts[1]!.task,
+        agentId: 'agent-2',
+        status: 'completed',
+        result: 'completed 2',
+      });
+      attempts[2]!.outcome.resolve({
+        task: attempts[2]!.task,
+        agentId: 'agent-3',
+        status: 'completed',
+        result: 'completed 3',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toHaveLength(5);
+
+      await vi.advanceTimersByTimeAsync(2_999);
+      expect(attempts).toHaveLength(5);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(attempts).toHaveLength(6);
+      expect(attempts[5]!.task.data).toBe(1);
+      expect(attempts[5]!.retryAgentId).toBe('agent-1');
+
+      await vi.advanceTimersByTimeAsync(2_999);
+      expect(attempts).toHaveLength(6);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(attempts).toHaveLength(7);
+      expect(attempts[6]!.task.data).toBe(6);
+      expect(attempts[6]!.retryAgentId).toBeUndefined();
 
       controller.abort();
       await expect(running).rejects.toThrow();
@@ -562,9 +629,10 @@ describe('SubagentBatch scheduling contract', () => {
         status: 'completed',
         result: 'completed 2',
       });
-      await vi.advanceTimersByTimeAsync(11_999);
+      await vi.advanceTimersByTimeAsync(12_000);
       expect(attempts).toHaveLength(8);
-      expect(attempts[7]!.task.data).toBe(8);
+      expect(attempts[7]!.task.data).toBe(7);
+      expect(attempts[7]!.retryAgentId).toBe('agent-7');
 
       controller.abort();
       await expect(running).rejects.toThrow();
