@@ -37,9 +37,11 @@ const WORKING_LABEL = 'Working...';
 const COMPLETED_LABEL = 'Completed.';
 const FAILED_LABEL = 'Failed.';
 const ABORTED_LABEL = 'Aborted.';
+const CANCELLED_LABEL = 'Cancelled.';
 const QUEUED_LABEL = 'Queued...';
-const SUSPENDED_LABEL = 'Suspended...';
+const SUSPENDED_LABEL = 'Rate limited...';
 const RESUMED_ITEM_LABEL = '(resumed)';
+const CANCELLED_LABEL_DARKEN_FACTOR = 0.72;
 
 const STATUS_BAR_ORDER = [
   'completed',
@@ -58,11 +60,42 @@ type ClearableMemberKey =
   | 'completedText'
   | 'failedAtMs'
   | 'failureText'
+  | 'cancelledLabelText'
+  | 'cancelledLabelColor'
+  | 'cancelledMarkColor'
+  | 'cancelledBarColor'
   | 'suspendedReason';
 
-const COMPLETED_CLEAR_KEYS = ['failedAtMs', 'failureText', 'suspendedReason'] as const satisfies readonly ClearableMemberKey[];
-const FAILED_CLEAR_KEYS = ['completedAtMs', 'completedText', 'suspendedReason'] as const satisfies readonly ClearableMemberKey[];
+const COMPLETED_CLEAR_KEYS = [
+  'failedAtMs',
+  'failureText',
+  'cancelledLabelText',
+  'cancelledLabelColor',
+  'cancelledMarkColor',
+  'cancelledBarColor',
+  'suspendedReason',
+] as const satisfies readonly ClearableMemberKey[];
+const FAILED_CLEAR_KEYS = [
+  'completedAtMs',
+  'completedText',
+  'cancelledLabelText',
+  'cancelledLabelColor',
+  'cancelledMarkColor',
+  'cancelledBarColor',
+  'suspendedReason',
+] as const satisfies readonly ClearableMemberKey[];
 const TERMINAL_CLEAR_KEYS = [
+  'completedAtMs',
+  'completedText',
+  'failedAtMs',
+  'failureText',
+  'cancelledLabelText',
+  'cancelledLabelColor',
+  'cancelledMarkColor',
+  'cancelledBarColor',
+  'suspendedReason',
+] as const satisfies readonly ClearableMemberKey[];
+const CANCELLED_CLEAR_KEYS = [
   'completedAtMs',
   'completedText',
   'failedAtMs',
@@ -79,6 +112,10 @@ interface AgentSwarmMember {
   latestModelText: string;
   completedText?: string;
   failureText?: string;
+  cancelledLabelText?: string;
+  cancelledLabelColor?: string;
+  cancelledMarkColor?: string;
+  cancelledBarColor?: string;
   suspendedReason?: string;
   completedAtMs?: number;
   failedAtMs?: number;
@@ -312,7 +349,7 @@ export class AgentSwarmProgressComponent implements Component {
     if (member === undefined || member.phase === 'completed' || member.phase === 'cancelled') return;
     member.agentId = input.agentId;
     this.progressEstimator.markQueued(member.id, Date.now());
-    member.phase = 'queued';
+    member.phase = 'suspended';
     clearMemberState(member, ...TERMINAL_CLEAR_KEYS);
     this.startAnimationIfNeeded();
   }
@@ -555,6 +592,9 @@ export class AgentSwarmProgressComponent implements Component {
     if (snapshot.phase === 'pending') {
       return renderPendingCell(member, width, this.colors);
     }
+    if (snapshot.phase === 'cancelled' && snapshot.ticks <= 0) {
+      return renderCancelledUnstartedCell(member, width, this.colors);
+    }
     if (!layout.renderText) {
       return this.renderCompactCell(member, snapshot, layout.barCells, nowMs);
     }
@@ -575,6 +615,7 @@ export class AgentSwarmProgressComponent implements Component {
       layout.barCells,
       this.colors,
       snapshot.phaseElapsedMs,
+      cancelledProgressColor(member, snapshot.phase, this.colors),
     );
     const prefix = `${id} ${bar} `;
     const labelWidth = Math.max(1, width - visibleWidth(prefix));
@@ -602,8 +643,9 @@ export class AgentSwarmProgressComponent implements Component {
       barCells,
       this.colors,
       snapshot.phaseElapsedMs,
+      cancelledProgressColor(member, snapshot.phase, this.colors),
     );
-    return `${id} ${bar}${compactTerminalMark(snapshot.phase, this.colors)}`;
+    return `${id} ${bar}${compactTerminalMark(member, snapshot.phase, this.colors)}`;
   }
 
   private findMemberForSubagent(
@@ -719,9 +761,26 @@ export class AgentSwarmProgressComponent implements Component {
   }
 
   private cancelMember(member: AgentSwarmMember, nowMs: number): void {
+    const previousPhase = member.phase;
     this.progressEstimator.markCancelled(member.id, nowMs);
     member.phase = 'cancelled';
-    clearMemberState(member, ...TERMINAL_CLEAR_KEYS);
+    clearMemberState(member, ...CANCELLED_CLEAR_KEYS);
+    if (previousPhase === 'pending' || previousPhase === 'queued' || previousPhase === 'suspended') {
+      member.cancelledLabelText = CANCELLED_LABEL;
+      member.cancelledLabelColor = cancelledLabelColor(this.colors);
+      member.cancelledMarkColor = this.colors.warning;
+      member.cancelledBarColor = this.colors.warning;
+    } else if (previousPhase === 'running') {
+      member.cancelledLabelText = runningCellLabelText(member);
+      member.cancelledLabelColor = cancelledLabelColor(this.colors);
+      member.cancelledMarkColor = this.colors.warning;
+      member.cancelledBarColor = this.colors.warning;
+    } else {
+      member.cancelledLabelText = ABORTED_LABEL;
+      member.cancelledLabelColor = this.colors.warning;
+      member.cancelledMarkColor = this.colors.warning;
+      member.cancelledBarColor = this.colors.warning;
+    }
   }
 }
 
@@ -1115,19 +1174,35 @@ function brailleBar(
   width: number,
   colors: ColorPalette,
   phaseElapsedMs: number,
+  phaseColorOverride?: string,
 ): string {
   const innerWidth = Math.max(1, width);
   if (phase === 'pending') return '';
   if (phase === 'failed') return bracketBar(failedBrailleBar(ticks, innerWidth, phaseElapsedMs, colors), colors);
   const displayTicks = phase === 'completed' ? completedDisplayTicks(ticks, innerWidth, phaseElapsedMs) : ticks;
-  const colorMap: Record<Exclude<AgentSwarmPhase, 'pending' | 'failed'>, string> = {
+  if (phase === 'cancelled') {
+    const cancelledColor = phaseColorOverride ?? colors.warning;
+    return bracketBar(
+      accumulatedBrailleBar(displayTicks, innerWidth, cancelledColor, colors, () => cancelledColor),
+      colors,
+    );
+  }
+  const colorMap: Record<Exclude<AgentSwarmPhase, 'pending' | 'failed' | 'cancelled'>, string> = {
     queued: colors.textDim,
-    suspended: colors.warning,
+    suspended: colors.textDim,
     running: colors.success,
     completed: colors.success,
-    cancelled: colors.warning,
   };
   return bracketBar(accumulatedBrailleBar(displayTicks, innerWidth, colorMap[phase], colors), colors);
+}
+
+function cancelledProgressColor(
+  member: AgentSwarmMember,
+  phase: AgentSwarmPhase,
+  colors: ColorPalette,
+): string | undefined {
+  if (phase !== 'cancelled') return undefined;
+  return member.cancelledBarColor ?? colors.warning;
 }
 
 function bracketBar(content: string, colors: ColorPalette): string {
@@ -1139,7 +1214,7 @@ function phaseColor(phase: AgentSwarmPhase, colors: ColorPalette): string {
   const map: Record<AgentSwarmPhase, string> = {
     pending: colors.textDim,
     queued: colors.textDim,
-    suspended: colors.warning,
+    suspended: colors.textDim,
     running: colors.textDim,
     completed: colors.success,
     failed: colors.error,
@@ -1219,7 +1294,7 @@ function statusBarColor(phase: StatusBarPhase, colors: ColorPalette): string {
   const map: Record<StatusBarPhase, string> = {
     queued: colors.textMuted,
     working: colors.primary,
-    suspended: colors.warning,
+    suspended: colors.textMuted,
     completed: colors.success,
     failed: colors.error,
     cancelled: colors.warning,
@@ -1259,7 +1334,7 @@ function totalStatusColor(status: TotalStatus, colors: ColorPalette): string {
   const map: Record<TotalStatus, string> = {
     working: colors.success,
     completed: colors.success,
-    suspended: colors.warning,
+    suspended: colors.textDim,
     failed: colors.error,
     aborted: colors.warning,
   };
@@ -1304,9 +1379,7 @@ function renderCellLabel(
 ): string {
   const latestLine = latestNonEmptyLine(snapshot.latestModelText);
   if (snapshot.phase === 'running') {
-    const itemText = collapseWhitespace(member.itemText);
-    const text = latestLine.length > 0 ? latestLine : itemText;
-    if (text.length > 0) return truncateWithColor(text, width, colors.textDim);
+    return truncateWithColor(runningCellLabelText(member), width, colors.textDim);
   }
   if (snapshot.phase === 'failed' && member.failureText !== undefined) {
     return truncateWithColor(`${FAILURE_MARK}${member.failureText}`, width, colors.error);
@@ -1315,13 +1388,32 @@ function renderCellLabel(
     return renderCompletedCellLabel(member.completedText ?? latestLine, width, colors);
   }
   if (snapshot.phase === 'cancelled') {
-    return truncateWithColor(
-      `${CANCELLED_MARK}${PHASE_LABELS[snapshot.phase]}`,
-      width,
-      colors.warning,
-    );
+    return renderCancelledCellLabel(member, width, colors);
   }
   return truncateWithColor(PHASE_LABELS[snapshot.phase], width, phaseColor(snapshot.phase, colors));
+}
+
+function runningCellLabelText(member: AgentSwarmMember): string {
+  const latestLine = latestNonEmptyLine(member.latestModelText);
+  const itemText = collapseWhitespace(member.itemText);
+  const text = latestLine.length > 0 ? latestLine : itemText;
+  return text.length > 0 ? text : PHASE_LABELS.running;
+}
+
+function renderCancelledCellLabel(
+  member: AgentSwarmMember,
+  width: number,
+  colors: ColorPalette,
+): string {
+  const labelText = member.cancelledLabelText ?? ABORTED_LABEL;
+  const labelColor = member.cancelledLabelColor ?? colors.warning;
+  const markColor = member.cancelledMarkColor ?? colors.warning;
+  const labelStyle = chalk.hex(labelColor);
+  return truncateToWidth(
+    chalk.hex(markColor)(CANCELLED_MARK) + labelStyle(labelText),
+    width,
+    labelStyle('…'),
+  );
 }
 
 function renderCompletedCellLabel(
@@ -1334,17 +1426,17 @@ function renderCompletedCellLabel(
   return truncateWithColor(label, width, colors.success);
 }
 
-function compactTerminalMark(phase: AgentSwarmPhase, colors: ColorPalette): string {
-  const map: Record<AgentSwarmPhase, string> = {
-    completed: chalk.hex(colors.success)(SUCCESS_MARK.trimEnd()),
-    failed: chalk.hex(colors.error)(FAILURE_MARK.trimEnd()),
-    cancelled: chalk.hex(colors.warning)(CANCELLED_MARK.trimEnd()),
-    pending: '',
-    queued: '',
-    running: '',
-    suspended: '',
-  };
-  return map[phase];
+function compactTerminalMark(
+  member: AgentSwarmMember,
+  phase: AgentSwarmPhase,
+  colors: ColorPalette,
+): string {
+  if (phase === 'completed') return chalk.hex(colors.success)(SUCCESS_MARK.trimEnd());
+  if (phase === 'failed') return chalk.hex(colors.error)(FAILURE_MARK.trimEnd());
+  if (phase === 'cancelled') {
+    return chalk.hex(member.cancelledMarkColor ?? colors.warning)(CANCELLED_MARK.trimEnd());
+  }
+  return '';
 }
 
 function renderPendingCell(
@@ -1369,6 +1461,17 @@ function renderQueuedCell(
   const prefix = `${id} `;
   const labelWidth = Math.max(1, width - visibleWidth(prefix));
   return prefix + truncateWithColor(QUEUED_LABEL, labelWidth, colors.textDim);
+}
+
+function renderCancelledUnstartedCell(
+  member: AgentSwarmMember,
+  width: number,
+  colors: ColorPalette,
+): string {
+  const id = chalk.hex(colors.primary)(member.id);
+  const prefix = `${id} `;
+  const labelWidth = Math.max(1, width - visibleWidth(prefix));
+  return prefix + renderCancelledCellLabel(member, labelWidth, colors);
 }
 
 function truncateWithColor(text: string, width: number, color: string): string {
@@ -1544,16 +1647,34 @@ function failedBrailleBar(
 }
 
 function darkenRedHexColor(hex: string): string {
+  return darkenHexColor(
+    hex,
+    FAILED_PLACEHOLDER_RED_FACTOR,
+    FAILED_PLACEHOLDER_NON_RED_FACTOR,
+    FAILED_PLACEHOLDER_NON_RED_FACTOR,
+  );
+}
+
+function cancelledLabelColor(colors: ColorPalette): string {
+  return darkenHexColor(colors.warning, CANCELLED_LABEL_DARKEN_FACTOR);
+}
+
+function darkenHexColor(
+  hex: string,
+  redFactor: number,
+  greenFactor = redFactor,
+  blueFactor = redFactor,
+): string {
   const match = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex);
   if (match === null) return hex;
   const darken = (channel: string, factor: number): string =>
     Math.max(0, Math.min(255, Math.round(Number.parseInt(channel, 16) * factor)))
       .toString(16)
       .padStart(2, '0');
-  return `#${darken(match[1]!, FAILED_PLACEHOLDER_RED_FACTOR)}${darken(
-    match[2]!,
-    FAILED_PLACEHOLDER_NON_RED_FACTOR,
-  )}${darken(match[3]!, FAILED_PLACEHOLDER_NON_RED_FACTOR)}`;
+  return `#${darken(match[1]!, redFactor)}${darken(match[2]!, greenFactor)}${darken(
+    match[3]!,
+    blueFactor,
+  )}`;
 }
 
 function accumulatedBrailleBar(

@@ -28,6 +28,16 @@ function withAnsiColor<T>(run: () => T): T {
   }
 }
 
+function darkenHexColor(hex: string, factor: number): string {
+  const match = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex);
+  if (match === null) return hex;
+  const darken = (channel: string): string =>
+    Math.max(0, Math.min(255, Math.round(Number.parseInt(channel, 16) * factor)))
+      .toString(16)
+      .padStart(2, '0');
+  return `#${darken(match[1]!)}${darken(match[2]!)}${darken(match[3]!)}`;
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
@@ -351,7 +361,7 @@ describe('AgentSwarmProgressComponent', () => {
     expect(output).not.toContain('001 [');
   });
 
-  it('prefixes an aborted subagent label with the aborted mark', () => {
+  it('prefixes a cancelled running subagent label with the aborted mark without changing the text', () => {
     const component = new AgentSwarmProgressComponent({
       description: 'Review changed files',
       colors: darkColors,
@@ -360,12 +370,34 @@ describe('AgentSwarmProgressComponent', () => {
     component.registerSubagent({ agentId: 'agent-1', description: 'Review changed files #1 (coder)' });
     component.markInputComplete();
     component.markStarted('agent-1');
+    component.appendModelDelta({ agentId: 'agent-1', delta: 'Inspecting src/a.ts' });
     component.markCancelled('agent-1');
 
     const output = strip(component.render(100).join('\n'));
+    const cellLine = output.split('\n').find((line) => line.includes('001 ['));
 
-    expect(output).toContain('001 [');
-    expect(output).toContain('⊘ Aborted.');
+    expect(cellLine).toBeDefined();
+    expect(cellLine).toContain('⊘ Inspecting src/a.ts');
+    expect(cellLine).not.toContain('⊘ Aborted.');
+  });
+
+  it('shows a dark yellow cancelled label without a progress bar for queued subagents', () => {
+    const component = new AgentSwarmProgressComponent({
+      description: 'Review changed files',
+      colors: darkColors,
+    });
+
+    component.registerSubagent({ agentId: 'agent-1', description: 'Review changed files #1 (coder)' });
+    component.markInputComplete();
+    component.markCancelled('agent-1');
+
+    const output = strip(component.render(100).join('\n'));
+    const cellLine = output.split('\n').find((line) => line.includes('001 '));
+
+    expect(cellLine).toBeDefined();
+    expect(cellLine).toContain('⊘ Cancelled.');
+    expect(cellLine).not.toContain('[');
+    expect(cellLine).not.toContain('⊘ Aborted.');
   });
 
   it('renders terminal marks against compact bars when subagent text is hidden', () => {
@@ -456,7 +488,7 @@ describe('AgentSwarmProgressComponent', () => {
     expect(output).not.toContain('Failed:');
   });
 
-  it('renders suspended subagents as queued and clears the state when they start again', () => {
+  it('renders suspended subagents as rate limited and clears the state when they start again', () => {
     const component = new AgentSwarmProgressComponent({
       description: 'Review changed files',
       colors: darkColors,
@@ -470,16 +502,50 @@ describe('AgentSwarmProgressComponent', () => {
     });
 
     let output = strip(component.render(100).join('\n'));
-    expect(output).toContain('Queued...');
-    expect(output).not.toContain('Suspended');
+    expect(output).toContain('Rate limited...');
+    expect(output).not.toContain('Queued...');
     expect(output).not.toContain('Provider rate limit');
     expect(output).not.toContain('Failed');
+    withAnsiColor(() => {
+      const rawLine = component.render(100).join('\n')
+        .split('\n')
+        .find((line) => strip(line).includes('001 ['));
+      expect(rawLine).toContain(chalk.hex(darkColors.textDim)('Rate limited...'));
+    });
 
     component.markStarted('agent-1');
 
     output = strip(component.render(100).join('\n'));
     expect(output).toContain('Running');
-    expect(output).not.toContain('Suspended');
+    expect(output).not.toContain('Rate limited...');
+  });
+
+  it('renders rate-limited subagents as dark yellow cancelled when cancelled', () => {
+    withAnsiColor(() => {
+      const cancelledTextColor = darkenHexColor(darkColors.warning, 0.72);
+      const component = new AgentSwarmProgressComponent({
+        description: 'Review changed files',
+        colors: darkColors,
+      });
+
+      component.registerSubagent({ agentId: 'agent-1', description: 'Review changed files #1 (coder)' });
+      component.markStarted('agent-1');
+      component.markSuspended({
+        agentId: 'agent-1',
+        reason: 'Provider rate limit; subagent requeued for retry.',
+      });
+      component.markCancelled('agent-1');
+
+      const rawLine = component.render(100).join('\n')
+        .split('\n')
+        .find((line) => strip(line).includes('001 ['));
+      expect(rawLine).toBeDefined();
+      expect(strip(rawLine ?? '')).toContain('⊘ Cancelled.');
+      expect(strip(rawLine ?? '')).not.toContain('Rate limited...');
+      expect(rawLine).toContain(chalk.hex(darkColors.warning)('⣀⣀⣀⣀⣀⣀⣀⣀'));
+      expect(rawLine).toContain(chalk.hex(darkColors.warning)('⊘ '));
+      expect(rawLine).toContain(chalk.hex(cancelledTextColor)('Cancelled.'));
+    });
   });
 
   it('renders failure details from AgentSwarm result output', () => {
@@ -529,7 +595,8 @@ describe('AgentSwarmProgressComponent', () => {
 
     expect(applied).toBe(true);
     expect(output).toContain('✗ Agent timed out after 30s.');
-    expect(output).toContain('⊘ Aborted.');
+    expect(output).toContain('⊘ Cancelled.');
+    expect(output).not.toContain('002 [');
     expect(output).not.toContain('Completed.');
   });
 
@@ -844,6 +911,45 @@ describe('AgentSwarmProgressComponent', () => {
     } finally {
       chalk.level = previousChalkLevel;
     }
+  });
+
+  it('colors cancelled cell labels from the subagent state at cancellation time', () => {
+    withAnsiColor(() => {
+      const cancelledTextColor = darkenHexColor(darkColors.warning, 0.72);
+      const running = new AgentSwarmProgressComponent({
+        description: 'Review changed files',
+        colors: darkColors,
+      });
+      running.registerSubagent({ agentId: 'agent-1', description: 'Review changed files #1 (coder)' });
+      running.markInputComplete();
+      running.markStarted('agent-1');
+      running.appendModelDelta({ agentId: 'agent-1', delta: 'Inspecting src/a.ts' });
+      running.markCancelled('agent-1');
+
+      const runningRawLine = running.render(100).join('\n')
+        .split('\n')
+        .find((line) => strip(line).includes('001 ['));
+      expect(runningRawLine).toBeDefined();
+      expect(runningRawLine).toContain(chalk.hex(darkColors.warning)('⣀⣀⣀⣀⣀⣀⣀⣀'));
+      expect(runningRawLine).toContain(chalk.hex(darkColors.warning)('⊘ '));
+      expect(runningRawLine).toContain(chalk.hex(cancelledTextColor)('Inspecting src/a.ts'));
+
+      const queued = new AgentSwarmProgressComponent({
+        description: 'Review changed files',
+        colors: darkColors,
+      });
+      queued.registerSubagent({ agentId: 'agent-1', description: 'Review changed files #1 (coder)' });
+      queued.markInputComplete();
+      queued.markCancelled('agent-1');
+
+      const queuedRawLine = queued.render(100).join('\n')
+        .split('\n')
+        .find((line) => strip(line).includes('001 '));
+      expect(queuedRawLine).toBeDefined();
+      expect(strip(queuedRawLine ?? '')).not.toContain('[');
+      expect(queuedRawLine).toContain(chalk.hex(darkColors.warning)('⊘ '));
+      expect(queuedRawLine).toContain(chalk.hex(cancelledTextColor)('Cancelled.'));
+    });
   });
 
   it('reserves one trailing cell for prompting streaming text', () => {

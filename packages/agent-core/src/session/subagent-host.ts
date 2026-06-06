@@ -32,6 +32,8 @@ import SUMMARY_CONTINUATION_PROMPT from './summary-continuation.md';
 export type {
   SubagentResult as QueuedSubagentRunResult,
   QueuedSubagentTask,
+  ResumeQueuedSubagentTask,
+  SpawnQueuedSubagentTask,
 } from './subagent-batch';
 
 /**

@@ -396,7 +396,7 @@ describe('SessionSubagentHost', () => {
           agentId: 'agent-1',
           status: 'failed',
           state: 'started',
-          error: 'Subagent timed out after 10s.',
+          error: 'Subagent timed out.',
         },
       ]);
     } finally {
@@ -1339,6 +1339,7 @@ describe('SessionSubagentHost', () => {
         [
           {
             ...queuedTask(1),
+            kind: 'resume',
             prompt: 'Continue the previous swarm task',
             resumeAgentId: 'agent-0',
             signal,
@@ -2005,7 +2006,10 @@ function createRecordedBatchRunner(
         ...task,
         signal: task.signal ?? runOptions?.signal,
       }));
-      return new SubagentBatch(launcher, activeTasks as readonly QueuedSubagentTask<T>[]).run();
+      return new SubagentBatch(
+        launcher as unknown as SessionSubagentHost,
+        activeTasks as readonly QueuedSubagentTask<T>[],
+      ).run();
     },
     attempts,
   };
@@ -2069,6 +2073,7 @@ function isRecordedRateLimitOutcome<T>(
 
 function queuedTask(index: number): QueuedSubagentTask<number> {
   return {
+    kind: 'spawn',
     data: index,
     profileName: 'coder',
     parentToolCallId: 'call_swarm',

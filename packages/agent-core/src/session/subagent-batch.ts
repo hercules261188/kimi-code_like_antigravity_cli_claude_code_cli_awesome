@@ -17,7 +17,7 @@ const RATE_LIMIT_RETRY_FACTOR = 2;
 const RATE_LIMIT_CAPACITY_SHRINK_INTERVAL_MS = 2000;
 const RATE_LIMIT_SUSPENDED_REASON = 'Provider rate limit; subagent requeued for retry.';
 
-export type QueuedSubagentTask<T = unknown> = {
+type BaseQueuedSubagentTask<T> = {
   readonly data: T;
   readonly profileName: string;
   readonly parentToolCallId: string;
@@ -26,10 +26,23 @@ export type QueuedSubagentTask<T = unknown> = {
   readonly description: string;
   readonly swarmItem?: string;
   readonly runInBackground: boolean;
-  readonly resumeAgentId?: string;
   readonly timeout?: number;
   readonly signal?: AbortSignal;
 };
+
+export type SpawnQueuedSubagentTask<T = unknown> = BaseQueuedSubagentTask<T> & {
+  readonly kind: 'spawn';
+  readonly resumeAgentId?: undefined;
+};
+
+export type ResumeQueuedSubagentTask<T = unknown> = BaseQueuedSubagentTask<T> & {
+  readonly kind: 'resume';
+  readonly resumeAgentId: string;
+};
+
+export type QueuedSubagentTask<T = unknown> =
+  | SpawnQueuedSubagentTask<T>
+  | ResumeQueuedSubagentTask<T>;
 
 export type SubagentResult<T = unknown> = {
   readonly task: QueuedSubagentTask<T>;
@@ -47,12 +60,12 @@ export type SubagentSuspendedEvent = {
   readonly reason: string;
 };
 
-type AttemptOutcome<T> =
-  | SubagentResult<T>
-  | {
-      readonly type: 'rate_limited';
-      readonly agentId?: string;
-    };
+type RateLimitedOutcome = {
+  readonly type: 'rate_limited';
+  readonly agentId?: string;
+};
+
+type AttemptOutcome<T> = SubagentResult<T> | RateLimitedOutcome;
 
 type TaskState<T> = {
   readonly index: number;
@@ -62,16 +75,13 @@ type TaskState<T> = {
   retryCount: number;
   retryReadyAt: number;
   started: boolean;
-  readyCounted: boolean;
 };
 
 type ActiveAttempt<T> = {
-  readonly id: number;
   readonly state: TaskState<T>;
   readonly controller: AbortController;
   readonly readyTimer: ReturnType<typeof setTimeout>;
   cleanup: () => void;
-  agentId?: string;
   ready: boolean;
   confirmationExpired: boolean;
   timedOut: boolean;
@@ -81,11 +91,10 @@ export class SubagentBatch<T> {
   private readonly states: Array<TaskState<T>>;
   private readonly pending: Array<TaskState<T>>;
   private readonly results: Array<SubagentResult<T> | undefined>;
-  private readonly active = new Map<number, ActiveAttempt<T>>();
+  private readonly active = new Set<ActiveAttempt<T>>();
   private readonly controller = new AbortController();
   private readonly batchSignal: AbortSignal | undefined;
   private readonly batchAbortListener: () => void;
-  private nextAttemptId = 0;
   private normalLaunchCount = 0;
   private normalLaunchTimer: ReturnType<typeof setTimeout> | undefined;
   private rateLimitLaunchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -101,10 +110,7 @@ export class SubagentBatch<T> {
   private nextRateLimitLaunchAt = 0;
 
   constructor(
-    private readonly launcher: Pick<
-      SessionSubagentHost,
-      'spawn' | 'resume' | 'retry' | 'suspended'
-    >,
+    private readonly launcher: SessionSubagentHost,
     tasks: readonly QueuedSubagentTask<T>[],
   ) {
     this.states = tasks.map((task, index) => ({
@@ -113,7 +119,6 @@ export class SubagentBatch<T> {
       retryCount: 0,
       retryReadyAt: 0,
       started: false,
-      readyCounted: false,
     }));
     this.pending = [...this.states];
     this.results = Array.from({ length: tasks.length });
@@ -218,7 +223,6 @@ export class SubagentBatch<T> {
     if (this.finished || this.controller.signal.aborted) return;
 
     const attempt: ActiveAttempt<T> = {
-      id: this.nextAttemptId,
       state,
       controller: new AbortController(),
       cleanup: () => {},
@@ -229,9 +233,8 @@ export class SubagentBatch<T> {
         attempt.confirmationExpired = true;
       }, START_CONFIRMATION_TIMEOUT_MS),
     };
-    this.nextAttemptId += 1;
     attempt.cleanup = this.linkAttemptSignals(attempt, state.task);
-    this.active.set(attempt.id, attempt);
+    this.active.add(attempt);
 
     this.runAttempt(attempt).then(
       (outcome) => {
@@ -263,7 +266,7 @@ export class SubagentBatch<T> {
       attempt.controller.signal.throwIfAborted();
       if (attempt.state.retryAgentId !== undefined) {
         handle = await this.launcher.retry(attempt.state.retryAgentId, runOptions);
-      } else if (task.resumeAgentId !== undefined) {
+      } else if (task.kind === 'resume') {
         handle = await this.launcher.resume(task.resumeAgentId, runOptions);
       } else {
         const spawnOptions: SpawnSubagentOptions = {
@@ -274,7 +277,6 @@ export class SubagentBatch<T> {
         handle = await this.launcher.spawn(spawnOptions);
       }
 
-      attempt.agentId = handle.agentId;
       attempt.state.agentId = handle.agentId;
       const completion = await handle.completion;
       return {
@@ -286,7 +288,7 @@ export class SubagentBatch<T> {
       };
     } catch (error) {
       if (isProviderRateLimitError(error)) {
-        return { type: 'rate_limited', agentId: handle?.agentId ?? attempt.agentId };
+        return { type: 'rate_limited', agentId: handle?.agentId ?? attempt.state.agentId };
       }
 
       const status =
@@ -295,22 +297,21 @@ export class SubagentBatch<T> {
           : 'failed';
       return {
         task,
-        agentId: handle?.agentId ?? attempt.agentId,
+        agentId: attempt.state.agentId,
         status,
-        state: handle === undefined && attempt.agentId === undefined ? 'not_started' : 'started',
+        state: attempt.state.agentId === undefined ? 'not_started' : 'started',
         error: this.attemptErrorMessage(attempt, error, status),
       };
     }
   }
 
   private markAttemptReady(attempt: ActiveAttempt<T>): void {
-    if (this.finished || attempt.ready || !this.active.has(attempt.id)) return;
+    if (this.finished || attempt.ready || !this.active.has(attempt)) return;
     if (attempt.confirmationExpired) return;
 
     attempt.ready = true;
     attempt.state.started = true;
-    if (!this.rateLimitMode && !attempt.state.readyCounted) {
-      attempt.state.readyCounted = true;
+    if (!this.rateLimitMode) {
       this.startedSuccessCount += 1;
     }
 
@@ -325,10 +326,10 @@ export class SubagentBatch<T> {
     if (!this.releaseAttempt(attempt)) return;
     if (this.finished) return;
 
-    if (isRateLimitedOutcome(outcome)) {
-      this.requeueRateLimited(attempt, outcome.agentId);
-    } else {
+    if ('status' in outcome) {
       this.results[attempt.state.index] = outcome;
+    } else {
+      this.requeueRateLimited(attempt, outcome.agentId);
     }
     this.schedule();
   }
@@ -346,10 +347,7 @@ export class SubagentBatch<T> {
   }
 
   private releaseAttempt(attempt: ActiveAttempt<T>): boolean {
-    const active = this.active.get(attempt.id);
-    if (active !== attempt) return false;
-
-    this.active.delete(attempt.id);
+    if (!this.active.delete(attempt)) return false;
     clearTimeout(attempt.readyTimer);
     attempt.cleanup();
     return true;
@@ -357,7 +355,7 @@ export class SubagentBatch<T> {
 
   private requeueRateLimited(attempt: ActiveAttempt<T>, agentId: string | undefined): void {
     const state = attempt.state;
-    const knownAgentId = agentId ?? attempt.agentId ?? state.agentId;
+    const knownAgentId = agentId ?? state.agentId;
     if (knownAgentId !== undefined) {
       state.agentId = knownAgentId;
       state.retryAgentId = knownAgentId;
@@ -370,7 +368,11 @@ export class SubagentBatch<T> {
 
     const now = Date.now();
     state.retryCount += 1;
-    const retryDelay = rateLimitRetryDelayMs(state.retryCount);
+    const retryDelay = retry.createTimeout(Math.max(0, state.retryCount - 1), {
+      minTimeout: RATE_LIMIT_RETRY_BASE_MS,
+      factor: RATE_LIMIT_RETRY_FACTOR,
+      randomize: false,
+    });
     state.retryReadyAt = now + retryDelay;
     this.pending.unshift(state);
     this.enterRateLimitMode(now);
@@ -426,7 +428,7 @@ export class SubagentBatch<T> {
 
   private finishIfComplete(): boolean {
     if (this.results.every((result) => result !== undefined)) {
-      this.finish(this.results as Array<SubagentResult<T>>);
+      this.finish(this.results);
       return true;
     }
     return false;
@@ -534,29 +536,9 @@ export class SubagentBatch<T> {
     status: SubagentResult<T>['status'],
   ): string {
     if (attempt.timedOut && attempt.state.task.timeout !== undefined) {
-      return `Subagent timed out after ${formatTimeoutMs(attempt.state.task.timeout)}.`;
+      return 'Subagent timed out.';
     }
     if (status === 'aborted') return 'The user manually interrupted this subagent batch.';
     return error instanceof Error ? error.message : String(error);
   }
-}
-
-function rateLimitRetryDelayMs(retryCount: number): number {
-  return retry.createTimeout(Math.max(0, retryCount - 1), {
-    minTimeout: RATE_LIMIT_RETRY_BASE_MS,
-    factor: RATE_LIMIT_RETRY_FACTOR,
-    randomize: false,
-  });
-}
-
-function isRateLimitedOutcome<T>(outcome: AttemptOutcome<T>): outcome is Extract<
-  AttemptOutcome<T>,
-  { readonly type: 'rate_limited' }
-> {
-  return (outcome as { readonly type?: string }).type === 'rate_limited';
-}
-
-export function formatTimeoutMs(timeoutMs: number): string {
-  if (timeoutMs % 1000 === 0) return `${String(timeoutMs / 1000)}s`;
-  return `${String(timeoutMs)}ms`;
 }

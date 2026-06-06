@@ -314,6 +314,7 @@ describe('current builtin collaboration tools', () => {
       runQueued: vi.fn().mockResolvedValue([
         {
           task: {
+            kind: 'spawn',
             data: { kind: 'spawn', index: 1, item: 'src/a.ts', prompt: 'Review src/a.ts' },
             profileName: 'explore',
             parentToolCallId: 'call_swarm',
@@ -327,6 +328,7 @@ describe('current builtin collaboration tools', () => {
         },
         {
           task: {
+            kind: 'spawn',
             data: { kind: 'spawn', index: 2, item: 'src/b.ts', prompt: 'Review src/b.ts' },
             profileName: 'explore',
             parentToolCallId: 'call_swarm',
@@ -379,6 +381,7 @@ describe('current builtin collaboration tools', () => {
     expect(host.runQueued).toHaveBeenCalledWith(
       [
         {
+          kind: 'spawn',
           data: { kind: 'spawn', index: 1, item: 'src/a.ts', prompt: 'Review src/a.ts' },
           profileName: 'explore',
           parentToolCallId: 'call_swarm',
@@ -386,10 +389,10 @@ describe('current builtin collaboration tools', () => {
           description: 'Review files #1 (explore)',
           swarmItem: 'src/a.ts',
           runInBackground: false,
-          resumeAgentId: undefined,
           signal,
         },
         {
+          kind: 'spawn',
           data: { kind: 'spawn', index: 2, item: 'src/b.ts', prompt: 'Review src/b.ts' },
           profileName: 'explore',
           parentToolCallId: 'call_swarm',
@@ -397,7 +400,6 @@ describe('current builtin collaboration tools', () => {
           description: 'Review files #2 (explore)',
           swarmItem: 'src/b.ts',
           runInBackground: false,
-          resumeAgentId: undefined,
           signal,
         },
       ],
@@ -438,7 +440,7 @@ describe('current builtin collaboration tools', () => {
       ): Promise<Array<QueuedSubagentRunResult<T>>> => {
         return tasks.map((task, index) => ({
           task,
-          agentId: task.resumeAgentId ?? `agent-new-${String(index + 1)}`,
+          agentId: task.kind === 'resume' ? task.resumeAgentId : `agent-new-${String(index + 1)}`,
           status: 'completed' as const,
           result: `result ${String(index + 1)}`,
         }));
@@ -490,6 +492,7 @@ describe('current builtin collaboration tools', () => {
     expect(host.runQueued).toHaveBeenCalledWith(
       [
         {
+          kind: 'resume',
           data: {
             kind: 'resume',
             index: 1,
@@ -507,6 +510,7 @@ describe('current builtin collaboration tools', () => {
           signal,
         },
         {
+          kind: 'resume',
           data: {
             kind: 'resume',
             index: 2,
@@ -524,6 +528,7 @@ describe('current builtin collaboration tools', () => {
           signal,
         },
         {
+          kind: 'spawn',
           data: {
             kind: 'spawn',
             index: 3,
@@ -536,7 +541,6 @@ describe('current builtin collaboration tools', () => {
           description: 'Finish review #3 (explore)',
           swarmItem: 'src/new.ts',
           runInBackground: false,
-          resumeAgentId: undefined,
           signal,
         },
       ],
@@ -557,6 +561,7 @@ describe('current builtin collaboration tools', () => {
       runQueued: vi.fn().mockResolvedValue([
         {
           task: {
+            kind: 'spawn',
             data: { kind: 'spawn', index: 1, item: 'src/a.ts', prompt: 'Review src/a.ts' },
             profileName: 'coder',
             parentToolCallId: 'call_swarm',
@@ -570,6 +575,7 @@ describe('current builtin collaboration tools', () => {
         },
         {
           task: {
+            kind: 'spawn',
             data: { kind: 'spawn', index: 2, item: 'src/b.ts', prompt: 'Review src/b.ts' },
             profileName: 'coder',
             parentToolCallId: 'call_swarm',
@@ -615,6 +621,7 @@ describe('current builtin collaboration tools', () => {
       runQueued: vi.fn().mockResolvedValue([
         {
           task: {
+            kind: 'spawn',
             data: { kind: 'spawn', index: 1, item: 'src/a.ts', prompt: 'Review src/a.ts' },
             profileName: 'coder',
             parentToolCallId: 'call_swarm',
@@ -627,6 +634,7 @@ describe('current builtin collaboration tools', () => {
         },
         {
           task: {
+            kind: 'spawn',
             data: { kind: 'spawn', index: 2, item: 'src/b.ts', prompt: 'Review src/b.ts' },
             profileName: 'coder',
             parentToolCallId: 'call_swarm',
@@ -669,6 +677,7 @@ describe('current builtin collaboration tools', () => {
       runQueued: vi.fn().mockResolvedValue([
         {
           task: {
+            kind: 'spawn',
             data: { kind: 'spawn', index: 1, item: 'src/a.ts', prompt: 'Review src/a.ts' },
             profileName: 'coder',
             parentToolCallId: 'call_swarm',
@@ -682,6 +691,7 @@ describe('current builtin collaboration tools', () => {
         },
         {
           task: {
+            kind: 'spawn',
             data: { kind: 'spawn', index: 2, item: 'src/b.ts', prompt: 'Review src/b.ts' },
             profileName: 'coder',
             parentToolCallId: 'call_swarm',
@@ -696,6 +706,7 @@ describe('current builtin collaboration tools', () => {
         },
         {
           task: {
+            kind: 'spawn',
             data: { kind: 'spawn', index: 3, item: 'src/c.ts', prompt: 'Review src/c.ts' },
             profileName: 'coder',
             parentToolCallId: 'call_swarm',

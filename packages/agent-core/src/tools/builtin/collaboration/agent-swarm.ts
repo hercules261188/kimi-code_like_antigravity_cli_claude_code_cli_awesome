@@ -143,8 +143,7 @@ export class AgentSwarmTool implements BuiltinTool<AgentSwarmToolInput> {
   ): Promise<ExecutableToolResult> {
     try {
       this.swarmMode.enter('implicit');
-      const specs = createAgentSwarmSpecs(args);
-      const result = await this.runSwarm(args, specs, context.signal, context.toolCallId);
+      const result = await this.runSwarm(args, context.signal, context.toolCallId);
       return {
         output: result,
       };
@@ -158,34 +157,33 @@ export class AgentSwarmTool implements BuiltinTool<AgentSwarmToolInput> {
 
   private async runSwarm(
     args: AgentSwarmToolInput,
-    specs: readonly AgentSwarmSpec[],
     signal: AbortSignal,
     toolCallId: string,
   ): Promise<string> {
     const profileName = normalizeOptionalString(args.subagent_type) ?? DEFAULT_SUBAGENT_TYPE;
-    const specsWithPersistedItems = specs.map((spec): AgentSwarmSpec => {
-      if (spec.kind === 'spawn') return spec;
-      return {
-        ...spec,
-        item: this.subagentHost.getSwarmItem(spec.agentId),
-      };
-    });
-    const tasks = specsWithPersistedItems.map((spec): QueuedSubagentTask<AgentSwarmSpec> => {
-      const resumeAgentId = spec.kind === 'resume' ? spec.agentId : undefined;
-      return {
+    const specs = createAgentSwarmSpecs(args, (agentId) => this.subagentHost.getSwarmItem(agentId));
+    const tasks = specs.map((spec): QueuedSubagentTask<AgentSwarmSpec> => {
+      const descriptionName = spec.kind === 'resume' ? 'resume' : profileName;
+      const common = {
         data: spec,
         profileName: spec.kind === 'resume' ? 'subagent' : profileName,
         parentToolCallId: toolCallId,
         prompt: spec.prompt,
-        description: childDescription(
-          args.description,
-          spec.index,
-          spec.kind === 'resume' ? 'resume' : profileName,
-        ),
-        swarmItem: spec.item,
+        description: childDescription(args.description, spec.index, descriptionName),
         runInBackground: false,
-        resumeAgentId,
+        swarmItem: spec.item,
         signal,
+      };
+      if (spec.kind === 'resume') {
+        return {
+          ...common,
+          kind: 'resume',
+          resumeAgentId: spec.agentId,
+        };
+      }
+      return {
+        ...common,
+        kind: 'spawn',
       };
     });
     const results = await this.subagentHost.runQueued(tasks);
@@ -193,7 +191,10 @@ export class AgentSwarmTool implements BuiltinTool<AgentSwarmToolInput> {
   }
 }
 
-function createAgentSwarmSpecs(args: AgentSwarmToolInput): AgentSwarmSpec[] {
+function createAgentSwarmSpecs(
+  args: AgentSwarmToolInput,
+  getResumeItem: (agentId: string) => string | undefined,
+): AgentSwarmSpec[] {
   const resumeEntries = Object.entries(args.resume_agent_ids ?? {}).map(([agentId, prompt]) => ({
     agentId: agentId.trim(),
     prompt: prompt.trim(),
@@ -214,6 +215,7 @@ function createAgentSwarmSpecs(args: AgentSwarmToolInput): AgentSwarmSpec[] {
       kind: 'resume',
       index: specs.length + 1,
       agentId: entry.agentId,
+      item: getResumeItem(entry.agentId),
       prompt: entry.prompt,
     });
   }
