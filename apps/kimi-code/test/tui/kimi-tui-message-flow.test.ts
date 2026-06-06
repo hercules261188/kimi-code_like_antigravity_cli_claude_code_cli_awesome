@@ -2529,6 +2529,72 @@ command = "vim"
     expect(transcript).not.toContain('Completed');
   });
 
+  it('marks only core user-cancellation subagent failures as cancelled', async () => {
+    const { driver } = await makeDriver();
+    const sendQueued = vi.fn();
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'tool.call.started',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        turnId: 1,
+        toolCallId: 'call_swarm',
+        name: 'AgentSwarm',
+        args: {
+          description: 'Review changed files',
+          prompt_template: 'Review {{item}}',
+          items: ['src/a.ts', 'src/b.ts'],
+        },
+      } as Event,
+      sendQueued,
+    );
+
+    for (const [index, subagentId] of ['agent-1', 'agent-2'].entries()) {
+      driver.sessionEventHandler.handleEvent(
+        {
+          type: 'subagent.spawned',
+          agentId: 'main',
+          sessionId: 'ses-1',
+          parentToolCallId: 'call_swarm',
+          subagentId,
+          subagentName: 'coder',
+          description: `Review changed files #${String(index + 1)} (coder)`,
+          swarmIndex: index + 1,
+          runInBackground: false,
+        } as Event,
+        sendQueued,
+      );
+    }
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'subagent.failed',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        parentToolCallId: 'call_swarm',
+        subagentId: 'agent-1',
+        error: 'Aborted by the user',
+      } as Event,
+      sendQueued,
+    );
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'subagent.failed',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        parentToolCallId: 'call_swarm',
+        subagentId: 'agent-2',
+        error: 'The user manually interrupted this subagent x.',
+      } as Event,
+      sendQueued,
+    );
+
+    const transcript = stripSgr(driver.state.transcriptContainer.render(200).join('\n'));
+    expect(transcript).toContain('⊘ Cancelled.');
+    expect(transcript).toContain('✗ The user manually interrupted this subagent x.');
+  });
+
   it('does not let later transcript entries reduce the AgentSwarm grid height', async () => {
     const { driver } = await makeDriver();
     const sendQueued = vi.fn();

@@ -19,7 +19,6 @@ import type {
 import { formatBackgroundAgentTranscript } from '../utils/background-agent-status';
 import { argsRecord, serializeToolResultOutput } from '../utils/event-payload';
 import { formatHookResultPlain } from '../utils/hook-result-format';
-import { isUserCancelledSubagentError } from '../utils/subagent-error';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { SessionEventHost } from './session-event-handler';
 
@@ -617,4 +616,15 @@ function isSubagentLifecycleEvent(event: Event): event is SubagentLifecycleEvent
     event.type === 'subagent.completed' ||
     event.type === 'subagent.failed'
   );
+}
+
+function isUserCancelledSubagentError(error: string): boolean {
+  // Structured AgentSwarm results use outcome="aborted" and are parsed separately.
+  switch (error.trim()) {
+    case 'Aborted by the user':
+    case 'The user manually interrupted this subagent batch.':
+      return true;
+    default:
+      return false;
+  }
 }
