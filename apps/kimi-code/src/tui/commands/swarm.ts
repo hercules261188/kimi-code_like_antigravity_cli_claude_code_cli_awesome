@@ -4,7 +4,10 @@ import {
   SwarmStartPermissionPromptComponent,
   type SwarmStartPermissionChoice,
 } from '../components/dialogs/swarm-start-permission-prompt';
-import { SwarmModeMarkerComponent } from '../components/messages/swarm-markers';
+import {
+  SwarmModeMarkerComponent,
+  type SwarmModeMarkerState,
+} from '../components/messages/swarm-markers';
 import { LLM_NOT_SET_MESSAGE, NO_ACTIVE_SESSION_MESSAGE } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import type { SlashCommandHost } from './dispatch';
@@ -33,7 +36,6 @@ export async function handleSwarmCommand(host: SlashCommandHost, args: string): 
   }
 
   if (host.state.appState.permissionMode === 'manual') {
-    if (!(await activateSwarmForTask(host))) return;
     showSwarmStartPermissionPrompt(host, prompt);
     return;
   }
@@ -67,7 +69,7 @@ async function startSwarmWithPermission(
   if (choice === 'auto') {
     if (!(await setPermissionForSwarm(host, choice))) return;
   }
-  host.sendNormalUserInput(prompt);
+  await startSwarmTask(host, prompt);
 }
 
 async function setPermissionForSwarm(host: SlashCommandHost, mode: PermissionMode): Promise<boolean> {
@@ -82,16 +84,11 @@ async function setPermissionForSwarm(host: SlashCommandHost, mode: PermissionMod
 }
 
 async function startSwarmTask(host: SlashCommandHost, prompt: string): Promise<void> {
-  if (!(await activateSwarmForTask(host))) return;
-  host.sendNormalUserInput(prompt);
-}
-
-async function activateSwarmForTask(host: SlashCommandHost): Promise<boolean> {
   if (!host.state.appState.swarmMode && !(await setSwarmMode(host, true, 'task'))) {
-    return false;
+    return;
   }
-  renderSwarmModeMarker(host, true);
-  return true;
+  renderSwarmModeMarker(host, 'active');
+  host.sendNormalUserInput(prompt);
 }
 
 async function applySwarmMode(host: SlashCommandHost, enabled: boolean): Promise<void> {
@@ -104,7 +101,7 @@ async function applySwarmMode(host: SlashCommandHost, enabled: boolean): Promise
     return;
   }
   if (!(await setSwarmMode(host, enabled, 'manual'))) return;
-  renderSwarmModeMarker(host, enabled);
+  renderSwarmModeMarker(host, enabled ? 'active' : 'inactive');
 }
 
 async function setSwarmMode(
@@ -121,6 +118,7 @@ async function setSwarmMode(
     return false;
   }
   host.setAppState({ swarmMode: enabled });
+  host.state.swarmModeEntry = enabled ? trigger : undefined;
   return true;
 }
 
@@ -131,9 +129,9 @@ function swarmModeSubcommand(input: string): boolean | undefined {
   return undefined;
 }
 
-function renderSwarmModeMarker(host: SlashCommandHost, active: boolean): void {
+function renderSwarmModeMarker(host: SlashCommandHost, state: SwarmModeMarkerState): void {
   host.state.transcriptContainer.addChild(
-    new SwarmModeMarkerComponent(active, host.state.theme.colors),
+    new SwarmModeMarkerComponent(state, host.state.theme.colors),
   );
   host.state.ui.requestRender();
 }

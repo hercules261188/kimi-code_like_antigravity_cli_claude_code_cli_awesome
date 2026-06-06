@@ -1068,6 +1068,7 @@ export class KimiTUI {
     this.approvalController.cancelAll(reason);
     this.questionController.cancelAll(reason);
     this.session = undefined;
+    this.state.swarmModeEntry = undefined;
     this.harness.setTelemetryContext({ sessionId: null });
     this.setAppState({ goal: null });
     return previous;
@@ -1114,6 +1115,7 @@ export class KimiTUI {
     this.aborted = false;
     this.streamingUI.discardPending();
     this.state.queuedMessages = [];
+    this.state.swarmModeEntry = undefined;
     this.harness.interactiveAgentId = MAIN_AGENT_ID;
     this.streamingUI.resetToolCallState();
     this.streamingUI.resetToolUi();

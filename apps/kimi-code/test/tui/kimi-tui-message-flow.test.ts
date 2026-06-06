@@ -2080,8 +2080,8 @@ command = "vim"
     expect(stripSgr(renderTranscript(driver))).toContain('LLM not set');
   });
 
-  it('renders swarm mode markers only from /swarm commands', async () => {
-    const { driver, session } = await makeDriver();
+  it('renders swarm mode markers from /swarm commands, not tool-triggered status updates', async () => {
+    const { driver } = await makeDriver();
 
     driver.sessionEventHandler.handleEvent(
       {
@@ -2096,13 +2096,8 @@ command = "vim"
     expect(driver.state.appState.swarmMode).toBe(true);
     expect(stripSgr(renderTranscript(driver))).not.toContain('Swarm activated');
 
-    const callsBeforeAlreadyOn = session.setSwarmMode.mock.calls.length;
-    driver.handleUserInput('/swarm on');
-
-    expect(session.setSwarmMode).toHaveBeenCalledTimes(callsBeforeAlreadyOn);
     let transcript = stripSgr(renderTranscript(driver));
     expect(countOccurrences(transcript, 'Swarm activated')).toBe(0);
-    expect(countOccurrences(transcript, 'Swarm mode is already on.')).toBe(1);
 
     driver.sessionEventHandler.handleEvent(
       {
@@ -2117,18 +2112,28 @@ command = "vim"
     expect(driver.state.appState.swarmMode).toBe(false);
     transcript = stripSgr(renderTranscript(driver));
     expect(transcript).not.toContain('Swarm deactivated');
+    expect(transcript).not.toContain('Swarm completed');
 
-    driver.handleUserInput('/swarm on');
+    expect(countOccurrences(transcript, 'Swarm activated')).toBe(0);
+    expect(countOccurrences(transcript, 'Swarm deactivated')).toBe(0);
+    expect(countOccurrences(transcript, 'Swarm completed')).toBe(0);
+  });
+
+  it('renders a completed marker when a one-shot /swarm task exits', async () => {
+    const { driver, session } = await makeDriver();
+    driver.state.appState.permissionMode = 'auto';
+
+    driver.handleUserInput('/swarm Ship feature X');
 
     await vi.waitFor(() => {
-      expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'manual');
+      expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'task');
     });
     await vi.waitFor(() => {
       expect(countOccurrences(stripSgr(renderTranscript(driver)), 'Swarm activated')).toBe(1);
     });
-
-    transcript = stripSgr(renderTranscript(driver));
+    let transcript = stripSgr(renderTranscript(driver));
     expect(countOccurrences(transcript, 'Swarm activated')).toBe(1);
+    expect(transcript).not.toContain('Swarm completed');
 
     driver.sessionEventHandler.handleEvent(
       {
@@ -2142,42 +2147,9 @@ command = "vim"
 
     expect(driver.state.appState.swarmMode).toBe(false);
     transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).not.toContain('Swarm deactivated');
-
-    const callsBeforeAlreadyOff = session.setSwarmMode.mock.calls.length;
-    driver.handleUserInput('/swarm off');
-
-    expect(session.setSwarmMode).toHaveBeenCalledTimes(callsBeforeAlreadyOff);
-    transcript = stripSgr(renderTranscript(driver));
-    expect(countOccurrences(transcript, 'Swarm deactivated')).toBe(0);
-    expect(countOccurrences(transcript, 'Swarm mode is already off.')).toBe(1);
-
-    driver.sessionEventHandler.handleEvent(
-      {
-        type: 'agent.status.updated',
-        agentId: 'main',
-        sessionId: 'ses-1',
-        swarmMode: true,
-      } as Event,
-      vi.fn(),
-    );
-
-    driver.handleUserInput('/swarm off');
-
-    await vi.waitFor(() => {
-      expect(session.setSwarmMode).toHaveBeenCalledWith(false, 'manual');
-    });
-    await vi.waitFor(() => {
-      expect(countOccurrences(stripSgr(renderTranscript(driver)), 'Swarm deactivated')).toBe(1);
-    });
-
-    transcript = stripSgr(renderTranscript(driver));
     expect(countOccurrences(transcript, 'Swarm activated')).toBe(1);
-    expect(countOccurrences(transcript, 'Swarm deactivated')).toBe(1);
-    expect(countOccurrences(transcript, 'Swarm mode is already on.')).toBe(1);
-    expect(countOccurrences(transcript, 'Swarm mode is already off.')).toBe(1);
-    expect(transcript).not.toContain('Swarm mode enabled.');
-    expect(transcript).not.toContain('Swarm mode disabled.');
+    expect(countOccurrences(transcript, 'Swarm completed')).toBe(1);
+    expect(transcript).not.toContain('Swarm deactivated');
   });
 
   it('queues Ctrl-S input instead of steering while /init is running', async () => {
