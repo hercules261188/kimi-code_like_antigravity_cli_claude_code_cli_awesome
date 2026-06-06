@@ -68,7 +68,6 @@ export async function handleUndoCommand(
     (entry) => !isUndoContextEntry(entry),
   );
   entries.splice(lastUserIndex, entries.length - lastUserIndex, ...preservedEntries);
-  host.clearAgentSwarmProgress();
 
   if (entries.length === 0) {
     renderWelcome(host);
