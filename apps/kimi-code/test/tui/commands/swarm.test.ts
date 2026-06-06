@@ -111,6 +111,32 @@ describe('handleSwarmCommand', () => {
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });
 
+  it('asks before turning swarm mode on in Manual mode', async () => {
+    const { host, session } = makeHost({ model: '', permissionMode: 'manual' });
+
+    await handleSwarmCommand(host, 'on');
+
+    expect(session.setSwarmMode).not.toHaveBeenCalled();
+    expect(markerAddChild(host)).not.toHaveBeenCalled();
+    expect(host.mountEditorReplacement).toHaveBeenCalledOnce();
+    expect(session.setPermission).not.toHaveBeenCalled();
+    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
+    const text = stripAnsi(mountedPicker(host).render(80).join('\n'));
+    expect(text).toContain('Manual mode can block swarm work');
+    mountedPicker(host).handleInput(ENTER);
+
+    await vi.waitFor(() => {
+      expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'manual');
+    });
+    expect(session.setPermission).toHaveBeenCalledWith('auto');
+    expect(session.setSwarmMode).toHaveBeenCalledTimes(1);
+    expect(host.setAppState).toHaveBeenCalledWith({ permissionMode: 'auto' });
+    expect(host.setAppState).toHaveBeenCalledWith({ swarmMode: true });
+    expect(host.state.swarmModeEntry).toBe('manual');
+    expectSwarmMarker(host, 'Swarm activated');
+    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
+  });
+
   it('turns swarm mode on when called without args while swarm mode is off', async () => {
     const { host, session } = makeHost({ model: '', swarmMode: false });
 

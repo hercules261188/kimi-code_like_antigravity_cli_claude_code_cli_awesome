@@ -21,12 +21,12 @@ export async function handleSwarmCommand(host: SlashCommandHost, args: string): 
   const prompt = args.trim();
   const mode = swarmModeSubcommand(prompt);
   if (mode !== undefined) {
-    await applySwarmMode(host, mode);
+    await applySwarmMode(host, mode, `/swarm ${prompt}`);
     return;
   }
 
   if (prompt.length === 0) {
-    await applySwarmMode(host, !host.state.appState.swarmMode);
+    await applySwarmMode(host, !host.state.appState.swarmMode, '/swarm');
     return;
   }
 
@@ -36,25 +36,31 @@ export async function handleSwarmCommand(host: SlashCommandHost, args: string): 
   }
 
   if (host.state.appState.permissionMode === 'manual') {
-    showSwarmStartPermissionPrompt(host, prompt);
+    showSwarmStartPermissionPrompt(host, `/swarm ${prompt}`, 'Swarm task not started.', (choice) =>
+      startSwarmWithPermission(host, prompt, choice),
+    );
     return;
   }
 
   await startSwarmTask(host, prompt);
 }
 
-function showSwarmStartPermissionPrompt(host: SlashCommandHost, prompt: string): void {
-  const commandText = `/swarm ${prompt}`;
+function showSwarmStartPermissionPrompt(
+  host: SlashCommandHost,
+  commandText: string,
+  cancelStatus: string,
+  onSelect: (choice: SwarmStartPermissionChoice) => Promise<void>,
+): void {
   const cancelStart = (): void => {
     host.restoreInputText(commandText);
-    host.showStatus('Swarm task not started.');
+    host.showStatus(cancelStatus);
   };
   host.mountEditorReplacement(
     new SwarmStartPermissionPromptComponent({
       colors: host.state.theme.colors,
       onSelect: (choice) => {
         host.restoreEditor();
-        void startSwarmWithPermission(host, prompt, choice);
+        void onSelect(choice);
       },
       onCancel: cancelStart,
     }),
@@ -91,13 +97,25 @@ async function startSwarmTask(host: SlashCommandHost, prompt: string): Promise<v
   host.sendNormalUserInput(prompt);
 }
 
-async function applySwarmMode(host: SlashCommandHost, enabled: boolean): Promise<void> {
+async function applySwarmMode(
+  host: SlashCommandHost,
+  enabled: boolean,
+  commandText: string,
+): Promise<void> {
   if (enabled && host.state.appState.swarmMode) {
     host.showStatus('Swarm mode is already on.');
     return;
   }
   if (!enabled && !host.state.appState.swarmMode) {
     host.showStatus('Swarm mode is already off.');
+    return;
+  }
+  if (enabled && host.state.appState.permissionMode === 'manual') {
+    showSwarmStartPermissionPrompt(host, commandText, 'Swarm mode not enabled.', async (choice) => {
+      if (choice === 'auto' && !(await setPermissionForSwarm(host, choice))) return;
+      if (!(await setSwarmMode(host, true, 'manual'))) return;
+      renderSwarmModeMarker(host, 'active');
+    });
     return;
   }
   if (!(await setSwarmMode(host, enabled, 'manual'))) return;

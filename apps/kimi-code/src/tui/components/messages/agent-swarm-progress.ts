@@ -7,6 +7,7 @@ import {
 } from '#/tui/components/messages/agent-swarm-progress-estimator';
 import { FAILURE_MARK, SUCCESS_MARK } from '#/tui/constant/symbols';
 import type { ColorPalette } from '#/tui/theme/colors';
+import { gradientText } from '#/tui/theme/gradient-text';
 
 const TEXT_CELL_PREFERRED_WIDTH = 30;
 const CELL_GAP = '  ';
@@ -42,6 +43,7 @@ const QUEUED_LABEL = 'Queued...';
 const SUSPENDED_LABEL = 'Rate limited...';
 const RESUMED_ITEM_LABEL = '(resumed)';
 const CANCELLED_LABEL_DARKEN_FACTOR = 0.72;
+const AGENT_SWARM_TITLE_ACCENT_BIAS = 1.3;
 
 const STATUS_BAR_ORDER = [
   'completed',
@@ -471,7 +473,7 @@ export class AgentSwarmProgressComponent implements Component {
   private renderHeader(width: number, _summary: AgentSwarmSummary | undefined): string {
     if (width <= 3) return chalk.hex(this.colors.primary)('─'.repeat(width));
 
-    const title = chalk.hex(this.colors.primary).bold('Agent Swarm');
+    const title = gradientText('Agent Swarm', this.colors.primary, this.colors.accent, AGENT_SWARM_TITLE_ACCENT_BIAS);
     const description =
       this.description.length > 0
         ? chalk.hex(this.colors.primary)(' ─ ') + chalk.hex(this.colors.text)(this.description)
