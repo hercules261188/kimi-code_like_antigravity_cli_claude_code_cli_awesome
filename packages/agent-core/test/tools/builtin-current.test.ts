@@ -13,10 +13,11 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Agent } from '../../src/agent';
 import type { SwarmMode } from '../../src/agent/swarm';
 import { FLAG_DEFINITIONS, FlagResolver } from '../../src/flags';
-import type {
-  QueuedSubagentRunResult,
-  QueuedSubagentTask,
-  SessionSubagentHost,
+import {
+  DEFAULT_SUBAGENT_TIMEOUT_MS,
+  type QueuedSubagentRunResult,
+  type QueuedSubagentTask,
+  type SessionSubagentHost,
 } from '../../src/session/subagent-host';
 import { SkillRegistry } from '../../src/skill';
 import { TaskListInputSchema } from '../../src/tools/background/task-list';
@@ -387,9 +388,11 @@ describe('current builtin collaboration tools', () => {
           parentToolCallId: 'call_swarm',
           prompt: 'Review src/a.ts',
           description: 'Review files #1 (explore)',
+          swarmIndex: 1,
           swarmItem: 'src/a.ts',
           runInBackground: false,
           signal,
+          timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
         },
         {
           kind: 'spawn',
@@ -398,9 +401,11 @@ describe('current builtin collaboration tools', () => {
           parentToolCallId: 'call_swarm',
           prompt: 'Review src/b.ts',
           description: 'Review files #2 (explore)',
+          swarmIndex: 2,
           swarmItem: 'src/b.ts',
           runInBackground: false,
           signal,
+          timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
         },
       ],
     );
@@ -543,10 +548,12 @@ describe('current builtin collaboration tools', () => {
           parentToolCallId: 'call_swarm',
           prompt: 'Continue previous review A',
           description: 'Finish review #1 (resume)',
+          swarmIndex: 1,
           swarmItem: 'src/old-a.ts',
           runInBackground: false,
           resumeAgentId: 'agent-old-1',
           signal,
+          timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
         },
         {
           kind: 'resume',
@@ -561,10 +568,12 @@ describe('current builtin collaboration tools', () => {
           parentToolCallId: 'call_swarm',
           prompt: 'Continue previous review B',
           description: 'Finish review #2 (resume)',
+          swarmIndex: 2,
           swarmItem: 'src/old-b.ts',
           runInBackground: false,
           resumeAgentId: 'agent-old-2',
           signal,
+          timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
         },
         {
           kind: 'spawn',
@@ -578,9 +587,11 @@ describe('current builtin collaboration tools', () => {
           parentToolCallId: 'call_swarm',
           prompt: 'Review src/new.ts',
           description: 'Finish review #3 (explore)',
+          swarmIndex: 3,
           swarmItem: 'src/new.ts',
           runInBackground: false,
           signal,
+          timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
         },
       ],
     );
@@ -642,10 +653,12 @@ describe('current builtin collaboration tools', () => {
         parentToolCallId: 'call_swarm',
         prompt: 'Continue previous review A',
         description: 'Resume review #1 (resume)',
+        swarmIndex: 1,
         swarmItem: 'src/old-a.ts',
         runInBackground: false,
         resumeAgentId: 'agent-old-1',
         signal,
+        timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
       },
     ]);
     expect(result.output).toBe([

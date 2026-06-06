@@ -465,6 +465,63 @@ describe('SubagentBatch scheduling contract', () => {
     }
   });
 
+  it('does not spend task timeout while the task is queued', async () => {
+    vi.useFakeTimers();
+    try {
+      let settled = false;
+      const { runBatch, attempts } = createMockBatchRunner();
+      const running = runBatch(
+        [
+          ...Array.from({ length: 5 }, (_, index) => queuedTask(index + 1)),
+          { ...queuedTask(6), timeout: 1000 },
+        ],
+        { signal },
+      );
+      running.finally(() => {
+        settled = true;
+      });
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts).toHaveLength(5);
+
+      await vi.advanceTimersByTimeAsync(699);
+      expect(attempts).toHaveLength(5);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(attempts).toHaveLength(6);
+
+      await vi.advanceTimersByTimeAsync(999);
+      expect(settled).toBe(false);
+
+      attempts.slice(0, 5).forEach((attempt, index) => {
+        attempt.outcome.resolve({
+          task: attempt.task,
+          agentId: `agent-${String(index + 1)}`,
+          status: 'completed',
+          result: `completed ${String(index + 1)}`,
+        });
+      });
+      await vi.advanceTimersByTimeAsync(1);
+
+      await expect(running).resolves.toMatchObject([
+        { task: { data: 1 }, status: 'completed' },
+        { task: { data: 2 }, status: 'completed' },
+        { task: { data: 3 }, status: 'completed' },
+        { task: { data: 4 }, status: 'completed' },
+        { task: { data: 5 }, status: 'completed' },
+        {
+          task: { data: 6 },
+          agentId: 'agent-6',
+          status: 'failed',
+          state: 'started',
+          error: 'Subagent timed out.',
+        },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('rate-limit phase continues launching after rate-limited attempts settle', async () => {
     vi.useFakeTimers();
     try {

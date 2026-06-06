@@ -2,9 +2,10 @@ import { z } from 'zod';
 
 import type { SwarmMode } from '../../../agent/swarm';
 import type { BuiltinTool } from '../../../agent/tool';
-import type {
-  QueuedSubagentTask,
-  SessionSubagentHost,
+import {
+  DEFAULT_SUBAGENT_TIMEOUT_MS,
+  type QueuedSubagentTask,
+  type SessionSubagentHost,
 } from '../../../session/subagent-host';
 import { ToolAccesses } from '../../../loop/tool-access';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '../../../loop/types';
@@ -145,6 +146,7 @@ export class AgentSwarmTool implements BuiltinTool<AgentSwarmToolInput> {
         runInBackground: false,
         swarmItem: spec.item,
         signal,
+        timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
       };
       if (spec.kind === 'resume') {
         return {
