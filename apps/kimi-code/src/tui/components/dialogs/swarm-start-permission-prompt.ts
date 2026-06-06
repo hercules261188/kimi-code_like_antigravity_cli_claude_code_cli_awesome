@@ -2,11 +2,10 @@ import type { ColorPalette } from '#/tui/theme/colors';
 
 import {
   StartPermissionPromptComponent,
-  type StartPermissionChoice,
   type StartPermissionOption,
 } from './start-permission-prompt';
 
-export type SwarmStartPermissionChoice = StartPermissionChoice;
+export type SwarmStartPermissionChoice = 'auto' | 'manual';
 
 export interface SwarmStartPermissionPromptOptions {
   readonly colors: ColorPalette;
@@ -14,7 +13,7 @@ export interface SwarmStartPermissionPromptOptions {
   readonly onCancel: () => void;
 }
 
-const OPTIONS: readonly StartPermissionOption[] = [
+const OPTIONS: readonly StartPermissionOption<SwarmStartPermissionChoice>[] = [
   {
     value: 'auto',
     label: 'Switch to Auto and start',
@@ -22,21 +21,10 @@ const OPTIONS: readonly StartPermissionOption[] = [
       'Best for swarm tasks. Tools are approved automatically, and questions are skipped.',
   },
   {
-    value: 'yolo',
-    label: 'Switch to YOLO and start',
-    description:
-      'Tools and plan changes are approved automatically. Kimi Code may still ask you questions.',
-  },
-  {
     value: 'manual',
     label: 'Start in Manual',
     description:
       'Keep approvals on. Kimi Code may stop and wait for you during the swarm task.',
-  },
-  {
-    value: 'cancel',
-    label: 'Do not start',
-    description: 'Return to the input box with your swarm command.',
   },
 ];
 
@@ -46,7 +34,7 @@ const NOTICE_LINES = [
   'You can go back without losing your command.',
 ] as const;
 
-export class SwarmStartPermissionPromptComponent extends StartPermissionPromptComponent {
+export class SwarmStartPermissionPromptComponent extends StartPermissionPromptComponent<SwarmStartPermissionChoice> {
   constructor(opts: SwarmStartPermissionPromptOptions) {
     super({
       colors: opts.colors,

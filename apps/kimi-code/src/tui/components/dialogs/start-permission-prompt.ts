@@ -8,30 +8,35 @@ import {
 } from '@earendil-works/pi-tui';
 import chalk from 'chalk';
 
+import { SELECT_POINTER } from '#/tui/constant/symbols';
 import type { ColorPalette } from '#/tui/theme/colors';
 
 export type StartPermissionChoice = 'auto' | 'yolo' | 'manual' | 'cancel';
 
-export interface StartPermissionOption {
-  readonly value: StartPermissionChoice;
+export interface StartPermissionOption<TChoice extends StartPermissionChoice = StartPermissionChoice> {
+  readonly value: TChoice;
   readonly label: string;
   readonly description: string;
 }
 
-export interface StartPermissionPromptOptions {
+export interface StartPermissionPromptOptions<
+  TChoice extends StartPermissionChoice = StartPermissionChoice,
+> {
   readonly colors: ColorPalette;
   readonly title: string;
   readonly noticeLines: readonly string[];
-  readonly options: readonly StartPermissionOption[];
-  readonly onSelect: (choice: StartPermissionChoice) => void;
+  readonly options: readonly StartPermissionOption<TChoice>[];
+  readonly onSelect: (choice: TChoice) => void;
   readonly onCancel: () => void;
 }
 
-export class StartPermissionPromptComponent implements Component, Focusable {
+export class StartPermissionPromptComponent<TChoice extends StartPermissionChoice = StartPermissionChoice>
+  implements Component, Focusable
+{
   focused = false;
   private selectedIndex = 0;
 
-  constructor(private readonly opts: StartPermissionPromptOptions) {}
+  constructor(private readonly opts: StartPermissionPromptOptions<TChoice>) {}
 
   invalidate(): void {}
 
@@ -59,7 +64,7 @@ export class StartPermissionPromptComponent implements Component, Focusable {
     const lines = [
       rule,
       chalk.hex(colors.primary).bold(` ${this.opts.title}`),
-      chalk.hex(colors.textMuted)(' ↑↓ navigate · Enter select · Esc return to input box'),
+      chalk.hex(colors.textMuted)(' ↑↓ navigate · Enter select · Esc cancel'),
       '',
     ];
 
@@ -74,7 +79,7 @@ export class StartPermissionPromptComponent implements Component, Focusable {
     for (let i = 0; i < this.opts.options.length; i += 1) {
       const option = this.opts.options[i]!;
       const selected = i === this.selectedIndex;
-      const pointer = selected ? '❯' : ' ';
+      const pointer = selected ? SELECT_POINTER : ' ';
       lines.push(
         chalk.hex(selected ? colors.primary : colors.textDim)(`  ${pointer} `) +
           styleLabel(option.label, selected, colors),

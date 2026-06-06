@@ -51,10 +51,6 @@ function showSwarmStartPermissionPrompt(host: SlashCommandHost, prompt: string):
     new SwarmStartPermissionPromptComponent({
       colors: host.state.theme.colors,
       onSelect: (choice) => {
-        if (choice === 'cancel') {
-          cancelStart();
-          return;
-        }
         host.restoreEditor();
         void startSwarmWithPermission(host, prompt, choice);
       },
@@ -68,7 +64,7 @@ async function startSwarmWithPermission(
   prompt: string,
   choice: SwarmStartPermissionChoice,
 ): Promise<void> {
-  if (choice === 'auto' || choice === 'yolo') {
+  if (choice === 'auto') {
     if (!(await setPermissionForSwarm(host, choice))) return;
   }
   host.sendNormalUserInput(prompt);

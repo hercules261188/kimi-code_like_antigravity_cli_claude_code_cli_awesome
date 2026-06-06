@@ -188,7 +188,8 @@ describe('handleSwarmCommand', () => {
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
     const text = stripAnsi(mountedPicker(host).render(80).join('\n'));
     expect(text).toContain('Manual mode can block swarm work');
-    expect(text).toContain('Return to the input box with your swarm command');
+    expect(text).not.toContain('Switch to YOLO and start');
+    expect(text).not.toContain('Do not start');
   });
 
   it('defaults to Auto when confirming a Manual-mode swarm start', async () => {
@@ -215,7 +216,6 @@ describe('handleSwarmCommand', () => {
     await handleSwarmCommand(host, 'Ship feature X');
     const picker = mountedPicker(host);
     picker.handleInput(DOWN);
-    picker.handleInput(DOWN);
     picker.handleInput(ENTER);
 
     await vi.waitFor(() => {
@@ -224,26 +224,6 @@ describe('handleSwarmCommand', () => {
     expect(session.setPermission).not.toHaveBeenCalled();
     expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'task');
     expect(session.setSwarmMode).toHaveBeenCalledTimes(1);
-    expectSwarmMarker(host, true);
-    expect(markerAddChild(host)).toHaveBeenCalledTimes(1);
-  });
-
-  it('can switch to YOLO when starting a Manual-mode swarm task', async () => {
-    const { host, session } = makeHost({ permissionMode: 'manual' });
-
-    await handleSwarmCommand(host, 'Ship feature X');
-    const picker = mountedPicker(host);
-    picker.handleInput(DOWN);
-    picker.handleInput(ENTER);
-
-    await vi.waitFor(() => {
-      expect(host.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
-    });
-    expect(session.setPermission).toHaveBeenCalledWith('yolo');
-    expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'task');
-    expect(session.setSwarmMode).toHaveBeenCalledTimes(1);
-    expect(host.setAppState).toHaveBeenCalledWith({ permissionMode: 'yolo' });
-    expect(host.setAppState).toHaveBeenCalledWith({ swarmMode: true });
     expectSwarmMarker(host, true);
     expect(markerAddChild(host)).toHaveBeenCalledTimes(1);
   });
