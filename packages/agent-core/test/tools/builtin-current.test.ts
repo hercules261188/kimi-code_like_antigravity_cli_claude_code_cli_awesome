@@ -426,6 +426,7 @@ describe('current builtin collaboration tools', () => {
       prompt_template: 'Review {{item}}',
       items: ['src/a.ts', 'src/b.ts'],
     });
+    if (execution.isError === true) throw new Error('AgentSwarm resolveExecution returned an error');
 
     expect(execution.approvalRule).toBe('AgentSwarm');
     expect(execution.matchesRule).toBeUndefined();
